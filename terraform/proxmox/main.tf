@@ -9,41 +9,60 @@
 resource "proxmox_vm_qemu" "k8s_control_plane" {
   name        = "k8s-master-01"
   target_node = var.target_node
-  vmid        = 150 # maeke into variable, don't hardcode
+  vmid        = 150 
+  description = "Master node for the kubernetes cluster"
 
-  iso         = "${var.iso_storage}:iso/${var.ubuntu_iso}"
+ # Cloud init template
+  clone       = "terraform-cloud"   # make into variable, don't hardcode
+  full_clone  = true
 
-  cores       = var.k8s_control_plane.cores
-  sockets     = 1 # maeke into variable, don't hardcode
+
+
+
+  os_type = "cloud-init"
+  ipconfig0   = "ip=dhcp"
+  ciuser = "lennard"
+  cipassword = var.cloudinit-password
+  ciupgrade = true
+  automatic_reboot = true
+  
   memory      = var.k8s_control_plane.memory
 
-  scsihw      = "virtio-scsi-single"
-  boot        = "order=scsi0;ide2;net0"
-
-  os_type = "l26"
   agent   = 1
-  # sshkeys = var.ssh_public_key # can only be used with cloud init
-  disk {
-    slot     = 0
-    size     = "${var.k8s_control_plane.disk}G"
-    type     = "scsi"
-    storage  = var.disk_storage
-    iothread = 1
-  }
+  scsihw      = "virtio-scsi-single"
+ boot     = "c"
+bootdisk = "scsi0"
+disk {
+  slot    = "scsi0"
+  storage = var.disk_storage
+  size = "${var.k8s_control_plane.disk}G"
+}
 
+disk {
+  slot    = "ide2"
+  type    = "cloudinit"
+  storage = var.disk_storage
+}
+ cpu {
+  # already baked into tamplate but it is a good idea to set them
+  cores       = var.k8s_control_plane.cores
+  sockets     = 2 # make into variable, don't hardcode
+  
+}
   network {
+    id = 0
     model  = "virtio"
     bridge = var.vm_bridge
   }
 
+serial {
+  id   = 0
+  type = "socket"
+}
 
-
-  lifecycle {
-    ignore_changes = [
-      network,
-      disk
-    ]
-  }
+vga {
+  type = "serial0"
+}
 }
 
 # -----------------------------
@@ -54,35 +73,56 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   name       = "k8s-worker-${each.key + 1}"
   target_node = var.target_node
   vmid       = 200 + each.key
+  description = "Worker nodes node for the kubernetes cluster"
+  
+  
+  clone       = "terraform-cloud"  # make into variable, don't hardcode
+  full_clone  = true
+  
+  os_type = "cloud-init"
+  ipconfig0   = "ip=dhcp"
+  ciuser = "lennard"
+  cipassword = var.cloudinit-password
+  ciupgrade = true
+  automatic_reboot = true
 
-  iso        = "${var.iso_storage}:iso/${var.ubuntu_iso}"
-  cores      = var.k8s_workers.cores
-  memory     = var.k8s_workers.memory
 
+  agent   = 1 
   scsihw     = "virtio-scsi-single"
-  boot       = "order=scsi0;ide2;net0"
+boot     = "c"
+bootdisk = "scsi0"
+  
 
+  memory     = var.k8s_workers.memory
   disk {
-    slot    = 0
-    size    = "${var.k8s_workers.disk}G"
-    type    = "scsi"
-    storage = var.disk_storage
-    iothread = 1
-  }
+  slot    = "scsi0"
+  storage = var.disk_storage
+  size = "${var.k8s_workers.disk}G"
+}
 
+disk {
+  slot    = "ide2"
+  type    = "cloudinit"
+  storage = var.disk_storage
+}
+
+cpu {
+  cores      = var.k8s_workers.cores
+  sockets    = 2
+}
+  
   network {
+    id = 0
     model  = "virtio"
     bridge = var.vm_bridge
   }
 
-  os_type = "l26"
-  agent   = 1
-  # sshkeys = var.ssh_public_key # can only be used with cloudinit
+serial {
+  id   = 0
+  type = "socket"
+}
 
-  lifecycle {
-    ignore_changes = [
-      network,
-      disk
-    ]
-  }
+vga {
+  type = "serial0"
+}
 }

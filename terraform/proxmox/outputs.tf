@@ -5,7 +5,7 @@
 # Control Plane IP
 output "control_plane_ip" {
   description = "IP address of the Kubernetes control plane VM"
-  value       = proxmox_vm_qemu.k8s_control_plane.default_ipv4_address
+  value       = [proxmox_vm_qemu.k8s_control_plane.default_ipv4_address]
 }
 
 # Worker Node IPs

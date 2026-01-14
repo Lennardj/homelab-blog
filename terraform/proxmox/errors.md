@@ -26,3 +26,4 @@ pay attention to the name proxmox give to the boot device for me it was ide2
 the iso storage and the disk storage has to be in differnce places
 
 9. accidentally push the .terraform file has to do a hard reset and deleter the .git file 
+10. vm won't auto start, can't be done unless i create

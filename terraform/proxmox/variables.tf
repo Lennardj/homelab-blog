@@ -43,7 +43,7 @@ variable "iso_storage" {
 }
 
 variable "disk_storage" {
-  description = "torage that supports VM disks (e.g. local-lvm, zfs, ceph)"
+  description = "storage that supports VM disks (e.g. local-lvm, zfs, ceph)"
   type        = string
   default     = "local-lvm"
 }
@@ -56,11 +56,13 @@ variable "ubuntu_iso" {
 
 
 
-
-variable "ssh_public_key" {
-  description = "SSH public key for VM access"
-  type        = string
+variable "cloudinit-password" {
+  type = string
+  default = "lennard"
+  sensitive = true
+  
 }
+
 
 variable "k8s_control_plane" {
   description = "Control plane VM sizing"
@@ -70,9 +72,9 @@ variable "k8s_control_plane" {
     disk   = number
   })
   default = {
-    cores = 4
+    cores = 2
     memory = 4096
-    disk = 50
+    disk = 70
   }
 }
 
@@ -88,7 +90,7 @@ variable "k8s_workers" {
     cores = 2
     count = 2
     memory = 2048
-    disk = 35
+    disk = 70
   }
 }
 
