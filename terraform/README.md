@@ -57,6 +57,7 @@ qm create 5000 \
 
 # 2) Import the cloud image into local-lvm
 # (Run this in the directory where the .img file lives, or use the full path)
+cd /var/lib/vz/template/iso
 qm importdisk 5000 jammy-server-cloudimg-amd64-disk-kvm.img local-lvm
 
 # 3) Attach the imported disk as scsi0 (IMPORTANT: use volume-id, not a file path)
@@ -68,7 +69,7 @@ qm set 5000 \
 qm set 5000 --ide2 local-lvm:cloudinit
 
 # 5) Set boot order to the imported disk
-qm set 5000 --boot --boot-disk c scsi0
+qm set 5000 --boot c --bootdisk  scsi0
 
 # 6) Serial console (nice for cloud images)
 qm set 5000 --serial0 socket --vga serial0
@@ -108,7 +109,19 @@ So to conclude it would be a good option to provision multiplt vm quickly but it
 - Run some command to clean it out
 
 ```bash
-
+sudo apt update && sudo apt upgrade -y
+sudo apt autoremove -y
+sudo apt clean
+sudo rm -f /etc/ssh/ssh_host_*key*
+sudo truncate -s 0 /etc/machine-id
+sudo rm -f /var/lib/dbus/machine-id
+sudo find /var/log/ -type f -delete
+sudo rm -rf /tmp/*
+sudo rm -rf /var/tmp/*
+sudo ln -s /etc/machine-id /var/lib/dbus/machine-id
+sudo apt install qemu-guest-agent -y
+sudo systemctl enable --now qemu-guest-agent
+sudo shutdown now
 ```
 
 - Add cloudinit drive 
@@ -120,3 +133,6 @@ So to conclude it would be a good option to provision multiplt vm quickly but it
 ![edit cloud init](images/image-8.png)
 
 - convert to template then clone it to begin
+
+# WTF My thinking was wrong
+so After all that I ran into many problems, if you have a look at all the 
