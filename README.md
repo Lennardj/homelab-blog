@@ -43,4 +43,15 @@ homelab-blog/
 - Ubuntu ISO for VM provisioning
 - SSH key for VM access
 
+## Known Gotchas (Terraform + Proxmox)
 
+This project includes a curated reference of non-obvious pitfalls encountered when using Terraform with Proxmox, based on real-world debugging and operational experience.
+
+👉 See: [`terraform-proxmox-gotchas.md`](terraform/proxmox/terraform-proxmox-gotchas.md)
+
+The document covers topics such as:
+- Proxmox API token permissions
+- Disk cloning and template sizing pitfalls
+- Cloud-init inheritance quirks
+- Serial vs VGA console behaviour
+- Terraform provider limitations

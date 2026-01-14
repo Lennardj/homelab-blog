@@ -1,5 +1,20 @@
 # Terraform - Proxmox & Cloudflare
 
+## ⚠️ Important: Terraform + Proxmox Gotchas
+
+Before modifying disk, cloud-init, or VM hardware settings, read:
+
+👉 [`terraform-proxmox-gotchas.md`](.proxmox/terraform-proxmox-gotchas.md)
+
+Proxmox templates and Terraform providers have several non-obvious behaviours that can result in:
+- OS disks being detached during clone
+- VMs booting without an OS
+- Cloud-init settings silently not applying
+- Serial console output not appearing in noVNC
+
+This document explains *why* these issues occur and how to avoid them.
+
+
 This folder contains the Terraform code for provisioning:
 
 1. **Proxmox VMs** for a 3-node Kubernetes cluster
