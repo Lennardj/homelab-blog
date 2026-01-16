@@ -6,3 +6,4 @@ terraform.tfvars
 terraform.tfvars
 crash.log
 .terraform.lock.hcl
+id_ed25519.pub

@@ -1,4 +1,4 @@
-1. Even with the APi token, terraform was unable to connect and control proxmox
+1. Even with the terraform was unable to connect and control proxmox
 - This was due to the fact that each api token token needs to have it own permmision to access the cluster
 Errors Encountered So Far (Terraform / Proxmox)
 

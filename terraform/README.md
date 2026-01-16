@@ -14,6 +14,7 @@ Proxmox templates and Terraform providers have several non-obvious behaviours th
 
 This document explains *why* these issues occur and how to avoid them.
 
+## Terraform - Proxmox & Cloudflare
 
 This folder contains the Terraform code for provisioning:
 
@@ -35,7 +36,7 @@ terraform/
 
 **Creating cloudinit template**
 
-I found two ways to create a cloud-init template. Both of which has its advantage and disadvantages.
+I found two ways to create a cloud-init template. Both of which has its advantage and disadvantages, so I ended up using a bit of both.
 
 1. The first is from [Jim's Garage](https://www.youtube.com/watch?v=Kv6-_--y5CM) he uese the `qm` command 
 
@@ -86,17 +87,16 @@ qm set 5000 --ciuser ubuntu --sshkeys ~/.ssh/id_rsa.pub
 
 ```
 
-- We will set up the cloud init, this is self explanitory. The only thing to watch out for is the ssh key. 
-You should add your proxmox ssh keys so you are able to connect via the cousole.
-You can find the keys at `/root/.ssh/ida_rsa.pub` this key is also needed to log in via putty and ssh
+- The next step is to add changes to the cloud-init drive, username, password etc.
+- I would say most important is to  add a ssh key find the keys needed to log in via putty and ssh
 ![ssh keys](images/image9.png)
+- Last step is to convert to template and boom! You are done!
 
-
-This method works but i has issues with booting. when terraform provision the three vm they don't auto start and when I start them manually they aren't recorded in the terraform state file. Meaning you can run `terraform destroy` but it would delete the vm on proxmox. If you run `terraform apply` multiple times it will just stop the already started vm.
+- This method works but i has issues with booting. when terraform provision the three vm they don't auto start and when I start them manually they aren't recorded in the terraform state file. Meaning you can run `terraform destroy` but it would delete the vm on proxmox. If you run `terraform apply` multiple times it will just stop the already started vm.
 
 So to conclude it would be a good option to provision multiplt vm quickly but it wouldn't be good to automatically get th IP addresses to send directly to an ansible configuration file.
 
-2. This one was from [learn linux tv](https://www.youtube.com/watch?v=t3Yv4OOYcLs&list=PLT98CRl2KxKHnlbYhtABg6cF50bYa8Ulo&index=8) this one hopefully will fix all the previous problems
+2. This one was from [learn linux tv](https://www.youtube.com/watch?v=t3Yv4OOYcLs&list=PLT98CRl2KxKHnlbYhtABg6cF50bYa8Ulo&index=8) He uses the GUI to create the vm and he did one thing that we didn't do in method one her boot it up, ensure `qemu-guest-agent` is installed and cleaned it out.  
 
 - Create a new VM
 ![cm id and name](images/image.png)
@@ -106,7 +106,8 @@ So to conclude it would be a good option to provision multiplt vm quickly but it
 ![CPU](images/image-4.png)
 ![memory](images/image-5.png)
 ![Network](images/image-6.png)
-- Run some command to clean it out
+
+- Run some command to clean it out and ensure `qemu-guest-agent` is installed
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -132,7 +133,12 @@ sudo shutdown now
 
 ![edit cloud init](images/image-8.png)
 
-- convert to template then clone it to begin
+- convert to template then clone it to begin.
+
+
+### To conclude 
+
+To get a final working template with the `qemu-guest-agent` working and the Vms auto start I had to use Jim's cli method then I booted the vm and cleaned it out following Learn Linux TV.
+
 
 # WTF My thinking was wrong
-so After all that I ran into many problems, if you have a look at all the 

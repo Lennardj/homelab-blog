@@ -25,8 +25,8 @@ resource "proxmox_vm_qemu" "k8s_control_plane" {
   cipassword       = var.cloudinit-password
   ciupgrade        = true
   automatic_reboot = true
-
-  memory = var.k8s_control_plane.memory
+  sshkeys          = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOcZXl91NXf+09ntGlxlLEmg4a+I/yvXgFGfkm2sKgNc ljohn@Lennard-John-PC"
+  memory           = var.k8s_control_plane.memory
 
   agent    = 1
   scsihw   = "virtio-scsi-single"
@@ -85,7 +85,7 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   cipassword       = var.cloudinit-password
   ciupgrade        = true
   automatic_reboot = true
-
+  sshkeys          = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOcZXl91NXf+09ntGlxlLEmg4a+I/yvXgFGfkm2sKgNc ljohn@Lennard-John-PC"
 
   agent    = 1
   scsihw   = "virtio-scsi-single"

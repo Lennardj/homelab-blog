@@ -1,0 +1,60 @@
+﻿{
+  "all_nodes_hostnames": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "k8s-master-01",
+      "k8s-worker-1",
+      "k8s-worker-2"
+    ]
+  },
+  "all_nodes_ips": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "192.168.1.171",
+      "192.168.1.170",
+      "192.168.1.169"
+    ]
+  },
+  "control_plane_ip": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string"
+      ]
+    ],
+    "value": [
+      "192.168.1.171"
+    ]
+  },
+  "worker_ips": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "192.168.1.170",
+      "192.168.1.169"
+    ]
+  }
+}

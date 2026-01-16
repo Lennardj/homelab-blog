@@ -182,3 +182,30 @@ or explicitly configure VGA + serial devices.
 **Rule**
 
 > os\_type = "cloud-init" is mandatory when using cloud-init.
+
+## Guest Agent Is Mandatory for Reliable IP Outputs
+
+**Gotcha**  
+Terraform can only retrieve VM IP addresses from Proxmox if the QEMU guest agent
+is installed and running **inside the guest OS**.
+
+**Symptoms**
+- Terraform outputs for IPs are empty (`""`)
+- `terraform apply` succeeds but networking outputs are missing
+- `terraform plan --refresh-only` suddenly populates IPs *after* manual agent install
+
+**Root Cause**
+The VM template did not have `qemu-guest-agent` installed.
+While `agent = 1` was enabled in Proxmox, no guest-side service was available
+to report runtime network state.
+
+**Fix**
+Bake the guest agent into the template *before* converting it:
+
+```bash
+sudo apt update
+sudo apt install -y qemu-guest-agent
+sudo systemctl enable --now qemu-guest-agent
+sudo cloud-init clean --logs
+sudo shutdown -h now
+```
