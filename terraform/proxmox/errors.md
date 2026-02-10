@@ -29,7 +29,9 @@ the iso storage and the disk storage has to be in differnce places
 
 9. accidentally push the .terraform file has to do a hard reset and deleter the .git file 
 10. vm won't auto start, can't be done unless i create
-
+11. Fucking VScode give me a rediculous error, the kubernetes schema for YAML was installed but not the docker compose one. This cause the `docker-compse.yaml` to give a error with services at the top level.
+I had to install it by going to `setting.json` in vscode and adding `"https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json": "docker-compose.test.yaml"`
+12. Fucking hashicorp/terraform entry point. My docker compose ran well but the terraform container didn't do it's thing. When i check the logs `docker compose logs -f terraform` i notices that it is saying terraform doesn't have a blah blah meaning what ever command i was running blooding terraform was appended in from. ad and entry point to fix `  entrypoint: ["/bin/sh", "-lc"]`
 
 
 

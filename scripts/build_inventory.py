@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-OUTPUT_PATH = Path("../terraform/proxmox/output.json")  # wherever you write terraform output
+OUTPUT_PATH = Path("../artifacts/output.json")  # wherever you write terraform output
 INVENTORY_PATH = Path("../ansible/inventory/hosts.ini")
 
 ANSIBLE_USER = "lennard"

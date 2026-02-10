@@ -1,42 +1,39 @@
+services:
+  terraform:
+    build:
+      context: .
+      dockerfile: docker/terraform/Dockerfile
+    working_dir: /work/
+    entrypoint: [ "/bin/sh", "-lc" ]
+    env_file:
+      - .env
+    volumes:
+      - ./:/work
+      - artifacts:/artifacts
+    # entrypoint: [ "tail", "-f", "/dev/null" ]
+    command: |
+      set -e
+      terraform init
+      terraform apply -auto-approve
+      terraform output -json > /artifacts/output.json
+
+  ansible:
+    build:
+      context: .
+      dockerfile: docker/ansible/Dockerfile
+    working_dir: /work
+    depends_on:
+      - terraform
+    env_file:
+      - .env
+    volumes:
+      - ./:/work
+      - artifacts:/artifacts
+      - ${SSH_KEY_DIR:-~/.ssh}:/keys:ro
+    command: [ "/bin/bash", "/work/scripts/build_inventory.sh" ]
+    # command: [ "tail", "-f", "/dev/null" ]
+
+volumes:
+  artifacts:
 
 
-
-
-# version: "2.29" # Highly recommended to include the version
-
-# services:
-#   terraform:
-#     build:
-#       context: .
-#       dockerfile: docker/terraform/Dockerfile
-#     working_dir: /work/terraform
-#     env_file:
-#       - .env
-#     volumes:
-#       - ./:/work
-#       - artifacts:/artifacts
-#     command:
-#       - sh
-#       - -lc
-#       - |
-#         terraform init &&
-#         terraform apply -auto-approve &&
-#         terraform output -json > /artifacts/output.json
-
-#   ansible:
-#     build:
-#       context: .
-#       dockerfile: docker/ansible/Dockerfile
-#     working_dir: /work
-#     depends_on:
-#       - terraform
-#     env_file:
-#       - .env
-#     volumes:
-#       - ./:/work
-#       - artifacts:/artifacts
-#       - ${SSH_KEY_DIR}:/keys:ro
-#     command: ["/bin/bash", "/work/docker/scripts/run-ansible.sh"]
-
-# # volumes:
-# #   artifacts: artifacts
