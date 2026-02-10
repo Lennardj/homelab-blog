@@ -1,3 +1,6 @@
+# An AI refinied list of issue i faced.  
+
+
 1\. Proxmox API Tokens Require Explicit ACLs
 --------------------------------------------
 

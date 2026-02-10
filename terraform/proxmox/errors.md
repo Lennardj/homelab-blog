@@ -1,3 +1,5 @@
+# My rough draft writing 
+
 1. Even with the terraform was unable to connect and control proxmox
 - This was due to the fact that each api token token needs to have it own permmision to access the cluster
 Errors Encountered So Far (Terraform / Proxmox)
@@ -27,6 +29,13 @@ the iso storage and the disk storage has to be in differnce places
 
 9. accidentally push the .terraform file has to do a hard reset and deleter the .git file 
 10. vm won't auto start, can't be done unless i create
+
+
+
+
+
+
+# Refined by AI below
 
 1\. Terraform could not connect to Proxmox despite valid API token
 ------------------------------------------------------------------

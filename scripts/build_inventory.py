@@ -1,20 +1,20 @@
 import json
 from pathlib import Path
 
-OUTPUT_PATH = Path("../proxmox/output.json")  # wherever you write terraform output
-INVENTORY_PATH = Path("ansible/inventory/hosts.ini")
+OUTPUT_PATH = Path("../terraform/proxmox/output.json")  # wherever you write terraform output
+INVENTORY_PATH = Path("../ansible/inventory/hosts.ini")
 
-ANSIBLE_USER = "ubuntu"
+ANSIBLE_USER = "lennard"
 
 
 def as_list(terraform_output_obj):
     if isinstance(terraform_output_obj, dict) and "value" in terraform_output_obj:
-        return terraform_output_obj["value"]
+        return terraform_output_obj["value"] # if value is at top level
     return terraform_output_obj
 
 
 def build_host_ip_map(data: dict) -> dict:
-    hostnames = as_list(data.get("all_nodes_hostnames", {}))
+    hostnames = as_list(data.get("all_nodes_hostnames", {})) # https://docs.python.org/3/library/stdtypes.html#dict.get
     ips = as_list(data.get("all_nodes_ips", {}))
 
     if not isinstance(hostnames, list) or not isinstance(ips, list):
@@ -23,7 +23,7 @@ def build_host_ip_map(data: dict) -> dict:
     if len(hostnames) != len(ips):
         raise ValueError(f"Hostname/IP mismatch: {len(hostnames)} != {len(ips)}")
 
-    return {str(h).strip(): str(ip).strip() for h, ip in zip(hostnames, ips)}
+    return {str(h).strip(): str(ip).strip() for h, ip in zip(hostnames, ips)} # https://realpython.com/python-zip-function/
 
 
 def main():

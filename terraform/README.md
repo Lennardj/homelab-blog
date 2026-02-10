@@ -142,3 +142,18 @@ To get a final working template with the `qemu-guest-agent` working and the Vms 
 
 
 # WTF My thinking was wrong
+
+After doing all that I getting it working, i cam accross [this guys video]([text](https://www.youtube.com/watch?v=OkJAPc9Xo5Q)) where he uses ansible and the jinja templating to build a terraform file, then also using ansible run terraform. 
+This is for a future reference but I will diffinatly do it over when I am rebuilding my homelab.
+The only downside from this approach is that he had to hard code the Ip addresses in advance when I do it over I will try to remedy that.
+
+Here is their github: [45 Drives](https://github.com/45Drives/terraform-ansible-demo)
+
+## Next step python
+
+At this point you should have a working terraform apply/destroy. Now we will like to write a python script to do two things
+- Capture all the ip addresses and send them to `ansible/inventory/hosts.ini` file, formatted correctly into groups
+- (Optional depending on modem) allow ansible to run a script to reserve these ip addresses in you modem. 
+
+
+Go to script folder readme and ansible readme 
