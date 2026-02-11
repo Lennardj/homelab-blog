@@ -11,4 +11,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir ansible
 
 # Make sure /bin/bash exists (it does in slim, but just being explicit)
-SHELL ["/bin/bash", "-lc"]
+SHELL ["/bin/sh", "-lc"]

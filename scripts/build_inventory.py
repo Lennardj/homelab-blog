@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 import json
 from pathlib import Path
 
-OUTPUT_PATH = Path("../artifacts/output.json")  # wherever you write terraform output
-INVENTORY_PATH = Path("../ansible/inventory/hosts.ini")
+OUTPUT_PATH = Path("/artifacts/output.json")  # wherever you write terraform output
+INVENTORY_PATH = Path("/ansible/inventory/hosts.ini")
 
 ANSIBLE_USER = "lennard"
 
