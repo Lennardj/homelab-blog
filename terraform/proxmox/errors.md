@@ -33,7 +33,8 @@ the iso storage and the disk storage has to be in differnce places
 I had to install it by going to `setting.json` in vscode and adding `"https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json": "docker-compose.test.yaml"`
 12. Fucking hashicorp/terraform entry point. My docker compose ran well but the terraform container didn't do it's thing. When i check the logs `docker compose logs -f terraform` i notices that it is saying terraform doesn't have a blah blah meaning what ever command i was running blooding terraform was appended in from. ad and entry point to fix `  entrypoint: ["/bin/sh", "-lc"]`
 13. Docker `entrypoint` and `command` these  two just trip me up and it cost me two days, can't for the life of me figure out why the command on the terraform image wasn't working, even after changing the entrypoint to /bin/sh. Anyways, I just added the command I wanted directly in the entry point
-14. 
+14. docker compose `depends_on` is unrelaible, it only dictates which container starts first not doesn't tell one container to wait for the process to be finish in another container. As the ansible container depends on the output of the terraform container, this has become a issue as i have to run `docker compose up `twice to get the hosts.ini file to be populated with the right details
+15. To stop the above problem, I've added in a timer script. That checks if the `output.json` file exits before writing to the inventory, then I change the terraform entry script to save the IPs to a `.tmp` file first then rename it.
 
 
 

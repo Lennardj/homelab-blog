@@ -12,3 +12,4 @@ RUN pip install --no-cache-dir ansible
 
 # Make sure /bin/bash exists (it does in slim, but just being explicit)
 SHELL ["/bin/sh", "-lc"]
+ENTRYPOINT ["/work/scripts/wait.sh"]
