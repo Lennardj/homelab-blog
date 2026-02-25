@@ -22,13 +22,11 @@ services:
       - terraform
     env_file:
       - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    tty: true
     volumes:
       - ./:/work
       - ./artifacts:/artifacts
       - ${SSH_KEY_DIR:-~/.ssh}:/keys:ro
     command: [ "python3", "/work/scripts/build_inventory.py" ]
-    # command: [ "tail", "-f", "/dev/null" ]
-
-
-
-
