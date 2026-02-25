@@ -1,0 +1,170 @@
+---
+- name: Common Kubernetes prerequisites on all nodes
+  hosts: k8s_all
+  become: true
+  vars:
+    k8s_version_stream: "v1.30"   # change if you want (e.g. v1.29, v1.31)
+  tasks:
+    - name: Disable swap (runtime)
+      command: swapoff -a
+      when: (ansible_facts['swaptotal_mb'] | default(0) | int) > 0
+
+    - name: Remove swap from /etc/fstab
+      replace:
+        path: /etc/fstab
+        regexp: '^\s*([^#]\S+)\s+\S+\s+swap\s+.*$' # stole this from online
+        replace: '# \1 swap disabled by ansible'
+      register: fstab_swap
+
+    - name: Load kernel modules for Kubernetes
+      copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+
+    - name: Set sysctl params for Kubernetes networking
+      copy:
+        dest: /etc/sysctl.d/k8s.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.ipv4.ip_forward                 = 1
+
+    - name: Apply kernel modules and sysctl now
+      shell: |
+        set -e
+        modprobe overlay
+        modprobe br_netfilter
+        sysctl --system
+      args:
+        executable: /bin/bash
+
+    - name: Install required packages
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - apt-transport-https
+          - jq
+        state: present
+        update_cache: yes
+
+    - name: Install containerd
+      apt:
+        name: containerd
+        state: present
+        update_cache: yes
+
+    - name: Configure containerd (SystemdCgroup = true)
+      shell: |
+        set -e
+        mkdir -p /etc/containerd
+        containerd config default > /etc/containerd/config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+        systemctl enable --now containerd
+        systemctl restart containerd
+      args:
+        executable: /bin/bash
+
+    - name: Add Kubernetes apt repo (pkgs.k8s.io)
+      shell: |
+        set -e
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/{{ k8s_version_stream }}/deb/Release.key \
+          | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ k8s_version_stream }}/deb/ /" \
+          > /etc/apt/sources.list.d/kubernetes.list
+        apt-get update
+      args:
+        executable: /bin/bash
+
+    - name: Install kubelet, kubeadm, kubectl
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: yes
+
+    - name: Hold Kubernetes packages (prevent surprise upgrades)
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Configure kubelet node-ip to this host primary IP
+      lineinfile:
+        path: /etc/default/kubelet
+        create: yes
+        line: "KUBELET_EXTRA_ARGS=--node-ip={{ ansible_facts['default_ipv4']['address'] }}"
+      notify: restart kubelet
+
+  handlers:
+    - name: restart kubelet
+      service:
+        name: kubelet
+        state: restarted
+        daemon_reload: yes
+
+
+- name: Initialize control plane
+  hosts: k8s_control_plane
+  become: true
+  vars:
+    pod_cidr: "192.168.0.0/16"   # Calico default-friendly
+  tasks:
+    - name: Initialize the cluster (idempotent)
+      command: >
+        kubeadm init
+        --apiserver-advertise-address={{ ansible_facts['default_ipv4']['address'] }}
+        --node-name {{ inventory_hostname }}
+        --pod-network-cidr={{ pod_cidr }}
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Create kubeconfig directory for user
+      file:
+        path: "/home/{{ ansible_user }}/.kube"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Copy admin.conf to user's kubeconfig
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "/home/{{ ansible_user }}/.kube/config"
+        remote_src: yes
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+
+    - name: Install Calico CNI (only once)
+      command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Get join command for workers
+      command: kubeadm token create --print-join-command
+      register: join_cmd
+      changed_when: false
+
+    - name: Expose join command to other hosts
+      set_fact:
+        kube_join_command: "{{ join_cmd.stdout }}"
+
+
+- name: Join workers to the cluster
+  hosts: k8s_workers
+  become: true
+  tasks:
+    - name: Join the cluster (idempotent)
+      command: "{{ hostvars[groups['k8s_control_plane'][0]].kube_join_command }} --v=2"
+      args:
+        creates: /etc/kubernetes/kubelet.conf
