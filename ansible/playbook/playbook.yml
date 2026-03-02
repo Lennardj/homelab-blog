@@ -165,6 +165,6 @@
   become: true
   tasks:
     - name: Join the cluster (idempotent)
-      command: "{{ hostvars[groups['k8s_control_plane'][0]].kube_join_command }} --v=2"
+      command: "{{ hostvars[groups['k8s_control_plane'][0]]['kube_join_command'] }} --v=2"
       args:
         creates: /etc/kubernetes/kubelet.conf
