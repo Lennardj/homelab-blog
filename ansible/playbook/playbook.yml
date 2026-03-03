@@ -39,7 +39,17 @@
         sysctl --system
       args:
         executable: /bin/bash
-
+    - name: Wait for apt/dpkg lock to be released
+      shell: |
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+              fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+              fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
+          echo "apt is locked, waiting..."
+          sleep 5
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
     - name: Install required packages
       apt:
         name:
@@ -145,10 +155,19 @@
         group: "{{ ansible_user }}"
         mode: "0600"
 
-    - name: Install Calico CNI (only once)
+    - name: Check if Calico is installed
+      command: kubectl get daemonset calico-node -n kube-system
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: calico_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install Calico CNI
       command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
+      when: calico_check.rc != 0
 
     - name: Get join command for workers
       command: kubeadm token create --print-join-command
