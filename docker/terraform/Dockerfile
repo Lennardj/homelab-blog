@@ -1,5 +1,5 @@
 
-FROM hashicorp/terraform:1.7
+FROM hashicorp/terraform:1.14
 
 RUN apk add --no-cache bash curl jq
 

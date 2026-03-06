@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: docker/terraform/Dockerfile
     working_dir: /work
-
     env_file:
       - .env
     volumes:

@@ -99,20 +99,29 @@ def main():
     INVENTORY_PATH.write_text("\n".join(lines), encoding="utf-8")
     print("🧩 Running Ansible playbook...", flush=True)
 
-    cmd = [
-        "ansible-playbook",
-        "-i", str(INVENTORY_PATH),
-        "/work/ansible/playbook/playbook.yml",
-        "-vvv",
-    ]
+    cmds = [
+            [
+                "ansible-playbook",
+                "-i", str(INVENTORY_PATH),
+                "/work/ansible/playbook/playbook.yml",
+                "-vv"
+            ],
+            [
+                "ansible-playbook",
+                "-i", str(INVENTORY_PATH),
+                "/work/ansible/playbook/cluster-services.yml",
+                "-vv"
+            ]
+            ]
 
-    print("CMD:", " ".join(cmd), flush=True)
+    for cmd in cmds:
+        print("CMD:", " ".join(cmd), flush=True) 
 
-    p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, text=True)
-    rc = p.wait()
+        p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, text=True)
+        rc = p.wait()
 
-    if rc != 0:
-        raise SystemExit(rc)
+        if rc != 0:
+            raise SystemExit(rc)
 
     print("✅ Ansible finished successfully", flush=True)
 

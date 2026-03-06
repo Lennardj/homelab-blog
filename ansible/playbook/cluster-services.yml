@@ -1,0 +1,63 @@
+---
+- name: Install Kubernetes platform services
+  hosts: k8s_control_plane
+  become: true
+  vars:
+    kubeconfig: /home/{{ ansible_user }}/.kube/config
+
+  tasks:
+
+    - name: Ensure ingress-nginx namespace exists
+      command: kubectl create namespace ingress-nginx
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: ingress_ns
+      failed_when: false
+      changed_when: "'created' in ingress_ns.stdout"
+
+    - name: Install NGINX Ingress Controller
+      command: >
+        kubectl apply -f
+        https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for ingress controller pods to become ready
+      command: >
+        kubectl wait --namespace ingress-nginx
+        --for=condition=ready pod
+        --selector=app.kubernetes.io/component=controller
+        --timeout=600s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Install Metrics Server
+      command: >
+        kubectl apply -f
+        https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Patch metrics-server for insecure kubelet TLS (needed for many labs)
+      command: >
+        kubectl patch deployment metrics-server
+        -n kube-system
+        --type='json'
+        -p='[
+          {
+            "op": "add",
+            "path": "/spec/template/spec/containers/0/args/-",
+            "value": "--kubelet-insecure-tls"
+          }
+        ]'
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      failed_when: false
+
+    - name: Wait for metrics-server to be ready
+      command: >
+        kubectl wait --namespace kube-system
+        --for=condition=available deployment metrics-server
+        --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
