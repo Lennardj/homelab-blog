@@ -128,7 +128,7 @@
   hosts: k8s_control_plane
   become: true
   vars:
-    pod_cidr: "192.168.0.0/16"   # Calico default-friendly
+    pod_cidr: "10.96.0.0/16"   
   tasks:
     - name: Initialize the cluster (idempotent)
       command: >
@@ -165,7 +165,10 @@
       changed_when: false
 
     - name: Install Calico CNI
-      command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+      shell: |
+        curl -O https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
+        sed -i 's|192.168.0.0/16|10.96.0.0/16|g' calico.yaml
+        kubectl apply -f calico.yaml
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
       when: calico_check.rc != 0

@@ -28,6 +28,7 @@ def wait_for_output(path: Path, timeout: int = 600):
 
     raise TimeoutError("Terraform output.json not ready in time.")
 
+
 def as_list(terraform_output_obj):
     if isinstance(terraform_output_obj, dict) and "value" in terraform_output_obj:
         return terraform_output_obj["value"] # if value is at top level
@@ -45,6 +46,7 @@ def build_host_ip_map(data: dict) -> dict:
         raise ValueError(f"Hostname/IP mismatch: {len(hostnames)} != {len(ips)}")
 
     return {str(h).strip(): str(ip).strip() for h, ip in zip(hostnames, ips)} # https://realpython.com/python-zip-function/
+
 def prepare_key():
     Path("/root/.ssh").mkdir(parents=True, exist_ok=True)
     subprocess.run(["cp", "/keys/id_ed25519", "/root/.ssh/id_ed25519"], check=True)
@@ -97,8 +99,8 @@ def main():
     prepare_key()
     INVENTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     INVENTORY_PATH.write_text("\n".join(lines), encoding="utf-8")
+   
     print("🧩 Running Ansible playbook...", flush=True)
-
     cmds = [
             [
                 "ansible-playbook",

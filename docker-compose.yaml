@@ -9,7 +9,6 @@ services:
     volumes:
       - ./:/work
       - ./artifacts:/artifacts
-    # entrypoint: [ "tail", "-f", "/dev/null" ]
     entrypoint: [ "/bin/sh", "/work/docker/terraform/run.sh" ]
 
   ansible:
