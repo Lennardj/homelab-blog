@@ -1,0 +1,32 @@
+---
+- name: Deploy WordPress to Kubernetes
+  hosts: k8s_master
+  become: true
+  tasks:
+    - name: Create application directory on master
+      file:
+        path: /opt/k8s/wordpress
+        state: directory
+        mode: "0755"
+
+    - name: Copy WordPress manifests to master
+      copy:
+        src: ../files/k8s/wordpress/
+        dest: /opt/k8s/wordpress/
+        mode: "0644"
+
+    - name: Apply WordPress manifests
+      command: kubectl apply -k /opt/k8s/wordpress
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Wait for WordPress pods
+      command: kubectl get pods -n wordpress
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: wordpress_pods
+      changed_when: false
+
+    - name: Show pod status
+      debug:
+        var: wordpress_pods.stdout_lines

@@ -11,7 +11,7 @@ variable "proxmox_api_token_id" {
 }
 
 variable "proxmox_api_token_secret" {
-description = "Proxmox API token secret (uuid)"
+  description = "Proxmox API token secret (uuid)"
   type        = string
   sensitive   = true
 }
@@ -57,10 +57,10 @@ variable "ubuntu_iso" {
 
 
 variable "cloudinit-password" {
-  type = string
-  default = "lennard"
+  type      = string
+  default   = "lennard"
   sensitive = true
-  
+
 }
 
 
@@ -72,9 +72,9 @@ variable "k8s_control_plane" {
     disk   = number
   })
   default = {
-    cores = 2
+    cores  = 2
     memory = 4096
-    disk = 70
+    disk   = 70
   }
 }
 
@@ -87,10 +87,10 @@ variable "k8s_workers" {
     disk   = number
   })
   default = {
-    cores = 2
-    count = 2
+    cores  = 2
+    count  = 2
     memory = 2048
-    disk = 70
+    disk   = 70
   }
 }
 
@@ -102,6 +102,11 @@ variable "cloudflare_api_token" {
   sensitive   = true
 }
 
+variable "cloudflare_account_id" {
+  description = "Cloudflare account ID"
+  type        = string
+  sensitive   = true
+}
 variable "cloudflare_zone_id" {
   description = "Cloudflare Zone ID"
   type        = string
