@@ -1,0 +1,39 @@
+---
+- name: Install MetalLB
+  hosts: k8s_master
+  become: true
+
+  tasks:
+
+  - name: Install MetalLB
+    command: >
+      kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+
+  - name: Wait for MetalLB pods
+    command: kubectl get pods -n metallb-system
+    register: metallb_pods
+    retries: 10
+    delay: 10
+    until: "'Running' in metallb_pods.stdout"
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+
+  - name: Copy MetalLB config
+    copy:
+      src: ../files/k8s/metallb/metallb-config.yaml
+      dest: /tmp/metallb-config.yaml
+
+  - name: Apply MetalLB config
+    command: kubectl apply -f /tmp/metallb-config.yaml
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+
+  - name: Convert ingress controller to LoadBalancer
+    command: >
+      kubectl patch svc ingress-nginx-controller
+      -n ingress-nginx
+      -p '{"spec":{"type":"LoadBalancer"}}'
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf

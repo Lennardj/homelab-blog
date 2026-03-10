@@ -8,7 +8,23 @@
         path: /opt/k8s/wordpress
         state: directory
         mode: "0755"
+    - name: Wait for ingress controller to be ready
+      command: >
+        kubectl wait --namespace ingress-nginx
+        --for=condition=ready pod
+        --selector=app.kubernetes.io/component=controller
+        --timeout=300s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
 
+    - name: Wait for storage provisioner
+      command: >
+        kubectl wait --namespace local-path-storage
+        --for=condition=ready pod
+        --selector=app=local-path-provisioner
+        --timeout=300s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
     - name: Copy WordPress manifests to master
       copy:
         src: ../files/k8s/wordpress/

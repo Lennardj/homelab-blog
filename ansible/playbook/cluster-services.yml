@@ -61,3 +61,16 @@
         --timeout=120s
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+    - name: Install Local Path Provisioner
+      command: >
+        kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+    - name: Wait for PVCs
+      command: >
+        kubectl wait pvc --all
+        --namespace wordpress
+        --for=condition=Bound
+        --timeout=300s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf

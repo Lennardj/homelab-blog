@@ -8,8 +8,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: wordpress.local
-      http:
+    - http:
         paths:
           - path: /
             pathType: Prefix
