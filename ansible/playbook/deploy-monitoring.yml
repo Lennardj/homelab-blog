@@ -1,0 +1,45 @@
+---
+- name: Deploy Monitoring Stack
+  hosts: k8s_control_plane
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+  tasks:
+    - name: Install Helm
+      shell: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+    - name: Copy monitoring manifests
+      copy:
+        src: ../files/k8s/monitoring/
+        dest: /tmp/monitoring/
+
+    - name: Create monitoring namespace
+      command: kubectl apply -f /tmp/monitoring/namespace.yaml
+
+    - name: Add Prometheus Helm repo
+      command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+    - name: Update Helm repos
+      command: helm repo update
+
+    - name: Install kube-prometheus-stack
+      command: >
+        helm upgrade --install kube-prometheus-stack
+        prometheus-community/kube-prometheus-stack
+        --namespace monitoring
+        --values /tmp/monitoring/values.yaml
+
+    - name: Wait for Prometheus pods
+      command: >
+        kubectl wait pods
+        -n monitoring
+        --all
+        --for=condition=Ready
+        --timeout=300s
+
+    - name: Deploy Grafana ingress
+      command: kubectl apply -f /tmp/monitoring/grafana-ingress.yaml

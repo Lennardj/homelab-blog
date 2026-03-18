@@ -11,7 +11,7 @@ INVENTORY_PATH = Path("/work/ansible/inventory/hosts.ini")
 
 ANSIBLE_USER = "lennard"
 
-def wait_for_output(path: Path, timeout: int = 600):
+def wait_for_output(path: Path, timeout: int = 1200):
     print(f"⏳ Waiting for Terraform output at {path} ...", flush=True)
 
     start = time.time()
@@ -112,6 +112,24 @@ def main():
                 "ansible-playbook",
                 "-i", str(INVENTORY_PATH),
                 "/work/ansible/playbook/cluster-services.yml",
+                "-vv"
+            ],
+               [
+                "ansible-playbook",
+                "-i", str(INVENTORY_PATH),
+                "/work/ansible/playbook/cluster-networking.yml",
+                "-vv"
+            ],
+            [
+                "ansible-playbook",
+                "-i", str(INVENTORY_PATH),
+                "/work/ansible/playbook/deploy-monitoring.yml",
+                "-vv"
+            ],
+            [
+                "ansible-playbook",
+                "-i", str(INVENTORY_PATH),
+                "/work/ansible/playbook/deploy-wordpress.yml",
                 "-vv"
             ]
             ]

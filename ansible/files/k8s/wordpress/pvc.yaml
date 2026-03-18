@@ -4,6 +4,7 @@ metadata:
   name: mariadb-pvc
   namespace: wordpress
 spec:
+  storageClassName: local-path
   accessModes:
     - ReadWriteOnce
   resources:
@@ -16,6 +17,7 @@ metadata:
   name: wordpress-pvc
   namespace: wordpress
 spec:
+  storageClassName: local-path
   accessModes:
     - ReadWriteOnce
   resources:

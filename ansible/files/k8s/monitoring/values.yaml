@@ -1,0 +1,32 @@
+grafana:
+  adminPassword: admin123
+
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 2Gi
+
+  service:
+    type: ClusterIP
+
+prometheus:
+  prometheusSpec:
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi

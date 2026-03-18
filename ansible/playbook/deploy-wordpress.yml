@@ -1,6 +1,6 @@
 ---
 - name: Deploy WordPress to Kubernetes
-  hosts: k8s_master
+  hosts: k8s_control_plane
   become: true
   tasks:
     - name: Create application directory on master

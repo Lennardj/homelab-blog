@@ -78,7 +78,15 @@
         systemctl restart containerd
       args:
         executable: /bin/bash
-
+    - name: Ensure containerd is running
+      systemd:
+        name: containerd
+        state: started
+        enabled: true
+    - name: Wait for containerd socket
+      wait_for:
+          path: /run/containerd/containerd.sock
+          timeout: 60
     - name: Add Kubernetes apt repo (pkgs.k8s.io)
       shell: |
         set -e
@@ -131,13 +139,15 @@
     pod_cidr: "10.96.0.0/16"   
   tasks:
     - name: Initialize the cluster (idempotent)
-      command: >
-        kubeadm init
-        --apiserver-advertise-address={{ ansible_facts['default_ipv4']['address'] }}
-        --node-name {{ inventory_hostname }}
-        --pod-network-cidr={{ pod_cidr }}
+      shell: |
+        kubeadm init \
+        --apiserver-advertise-address={{ ansible_facts['default_ipv4']['address'] }} \
+        --node-name {{ inventory_hostname }} \
+        --pod-network-cidr={{ pod_cidr }} 
       args:
         creates: /etc/kubernetes/admin.conf
+      async: 600
+      poll: 10
 
     - name: Create kubeconfig directory for user
       file:
@@ -186,6 +196,10 @@
 - name: Join workers to the cluster
   hosts: k8s_workers
   become: true
+  pre_tasks:
+    - name: Wait for SSH
+      wait_for_connection:
+        timeout: 300
   tasks:
     - name: Join the cluster (idempotent)
       command: "{{ hostvars[groups['k8s_control_plane'][0]]['kube_join_command'] }} --v=2"
