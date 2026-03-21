@@ -4,6 +4,16 @@
   become: true
   vars:
     k8s_version_stream: "v1.30"   # change if you want (e.g. v1.29, v1.31)
+  pre_tasks:
+    - name: Wait for SSH to become available
+      wait_for_connection:
+        timeout: 600
+        sleep: 5
+        delay: 5
+
+    - name: Wait for cloud-init to finish
+      command: cloud-init status --wait
+      changed_when: false
   tasks:
     - name: Disable swap (runtime)
       command: swapoff -a
@@ -136,7 +146,17 @@
   hosts: k8s_control_plane
   become: true
   vars:
-    pod_cidr: "10.96.0.0/16"   
+    pod_cidr: "10.96.0.0/16" 
+  pre_tasks:
+    - name: Wait for SSH to become available
+      wait_for_connection:
+        timeout: 600
+        sleep: 5
+        delay: 5
+
+    - name: Wait for cloud-init to finish
+      command: cloud-init status --wait
+      changed_when: false 
   tasks:
     - name: Initialize the cluster (idempotent)
       shell: |
@@ -197,9 +217,15 @@
   hosts: k8s_workers
   become: true
   pre_tasks:
-    - name: Wait for SSH
+    - name: Wait for SSH to become available
       wait_for_connection:
-        timeout: 300
+        timeout: 600
+        sleep: 5
+        delay: 5
+
+    - name: Wait for cloud-init to finish
+      command: cloud-init status --wait
+      changed_when: false
   tasks:
     - name: Join the cluster (idempotent)
       command: "{{ hostvars[groups['k8s_control_plane'][0]]['kube_join_command'] }} --v=2"
