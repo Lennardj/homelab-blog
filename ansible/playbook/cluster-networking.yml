@@ -2,25 +2,34 @@
 - name: Install MetalLB
   hosts: k8s_control_plane
   become: true
-
+  vars:
+    kubeconfig: /home/{{ ansible_user }}/.kube/config
   tasks:
 
   - name: Install MetalLB
     command: >
       kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
     environment:
-      KUBECONFIG: /etc/kubernetes/admin.conf
+      KUBECONFIG: "{{ kubeconfig }}"
 
-  - name: Wait for MetalLB controller to be ready
-    command: >
-      kubectl wait
-      --namespace metallb-system
-      --for=condition=Ready
-      pod
-      --selector=component=controller
-      --timeout=300s
+  - name: Wait for MetalLB pods to exist
+    command: kubectl get pods -n metallb-system
     environment:
-      KUBECONFIG: /etc/kubernetes/admin.conf
+      KUBECONFIG: "{{ kubeconfig }}"
+    register: metallb_pods
+    retries: 10
+    delay: 15
+    until: "'controller' in metallb_pods.stdout"
+
+  - name: Wait for MetalLB controller to stabilise
+    shell: |
+      kubectl get pods -n metallb-system --no-headers | grep controller | grep Running || true | wc -l
+    environment:
+      KUBECONFIG: "{{ kubeconfig }}"
+    register: metallb_ready
+    retries: 15
+    delay: 20
+    until: metallb_ready.stdout|int >= 1
 
   - name: Copy MetalLB config
     copy:
@@ -30,7 +39,11 @@
   - name: Apply MetalLB config
     command: kubectl apply -f /tmp/metallb-config.yaml
     environment:
-      KUBECONFIG: /etc/kubernetes/admin.conf
+      KUBECONFIG: "{{ kubeconfig }}"
+    register: metallb_config
+    retries: 5
+    delay: 10
+    until: metallb_config.rc == 0
 
   - name: Convert ingress controller to LoadBalancer with static IP
     command: >
@@ -38,4 +51,8 @@
       -n ingress-nginx
       -p '{"spec":{"type":"LoadBalancer","loadBalancerIP":"192.168.1.70"}}'
     environment:
-      KUBECONFIG: /etc/kubernetes/admin.conf
+      KUBECONFIG: "{{ kubeconfig }}"
+    register: ingress_patch
+    retries: 5
+    delay: 10
+    until: ingress_patch.rc == 0
