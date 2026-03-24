@@ -5,14 +5,20 @@
   vars:
     k8s_version_stream: "v1.30"   # change if you want (e.g. v1.29, v1.31)
   pre_tasks:
-    - name: Wait for SSH to become available
+    - name: Wait for SSH to become available (resilient)
       wait_for_connection:
-        timeout: 600
-        sleep: 5
-        delay: 5
+        timeout: 120
+      register: ssh_ready
+      retries: 5
+      delay: 10
+      until: ssh_ready is succeeded
 
-    - name: Wait for cloud-init to finish
+    - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status --wait
+      register: cloud_init_status
+      retries: 5
+      delay: 10
+      until: cloud_init_status.rc == 0
       changed_when: false
   tasks:
     - name: Disable swap (runtime)
@@ -52,14 +58,13 @@
         executable: /bin/bash
     - name: Wait for apt/dpkg lock to be released
       shell: |
-        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
-              fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
-              fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
-          echo "apt is locked, waiting..."
-          sleep 5
-        done
-      args:
-        executable: /bin/bash
+        fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+        fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+        fuser /var/cache/apt/archives/lock >/dev/null 2>&1
+      register: apt_lock
+      retries: 20
+      delay: 5
+      until: apt_lock.rc != 0
       changed_when: false
     - name: Install required packages
       apt:
@@ -93,10 +98,14 @@
         name: containerd
         state: started
         enabled: true
-    - name: Wait for containerd socket
+    - name: Wait for containerd socket (resilient)
       wait_for:
-          path: /run/containerd/containerd.sock
-          timeout: 60
+        path: /run/containerd/containerd.sock
+        timeout: 30
+      register: containerd_socket
+      retries: 5
+      delay: 10
+      until: containerd_socket is succeeded
     - name: Add Kubernetes apt repo (pkgs.k8s.io)
       shell: |
         set -e
@@ -148,26 +157,51 @@
   vars:
     pod_cidr: "10.96.0.0/16" 
   pre_tasks:
-    - name: Wait for SSH to become available
+    - name: Wait for SSH to become available (resilient)
       wait_for_connection:
-        timeout: 600
-        sleep: 5
-        delay: 5
+        timeout: 120
+      register: ssh_ready
+      retries: 5
+      delay: 10
+      until: ssh_ready is succeeded
 
-    - name: Wait for cloud-init to finish
+    - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status --wait
-      changed_when: false 
+      register: cloud_init_status
+      retries: 5
+      delay: 10
+      until: cloud_init_status.rc == 0
+      changed_when: false
   tasks:
-    - name: Initialize the cluster (idempotent)
+    - name: Check if Kubernetes API is responding
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: cluster_check
+      failed_when: false
+      changed_when: false
+    - name: Reset Kubernetes if cluster is in a bad state
+      shell: |
+        kubeadm reset -f
+        rm -rf /etc/kubernetes/*
+        rm -rf $HOME/.kube
+        systemctl restart containerd
+      when:
+        - cluster_check.rc != 0
+        - ansible_facts['os_family'] == "Debian"
+    - name: Initialize the cluster (recovery-safe)
       shell: |
         kubeadm init \
         --apiserver-advertise-address={{ ansible_facts['default_ipv4']['address'] }} \
         --node-name {{ inventory_hostname }} \
-        --pod-network-cidr={{ pod_cidr }} 
+        --pod-network-cidr={{ pod_cidr }}
       args:
         creates: /etc/kubernetes/admin.conf
-      async: 600
-      poll: 10
+      register: kubeadm_init
+      retries: 3
+      delay: 30
+      until: kubeadm_init.rc == 0
+      when: cluster_check.rc != 0
 
     - name: Create kubeconfig directory for user
       file:
@@ -217,17 +251,27 @@
   hosts: k8s_workers
   become: true
   pre_tasks:
-    - name: Wait for SSH to become available
+    - name: Wait for SSH to become available (resilient)
       wait_for_connection:
-        timeout: 600
-        sleep: 5
-        delay: 5
+        timeout: 120
+      register: ssh_ready
+      retries: 5
+      delay: 10
+      until: ssh_ready is succeeded
 
-    - name: Wait for cloud-init to finish
+    - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status --wait
+      register: cloud_init_status
+      retries: 5
+      delay: 10
+      until: cloud_init_status.rc == 0
       changed_when: false
   tasks:
-    - name: Join the cluster (idempotent)
+    - name: Join the cluster (resilient)
       command: "{{ hostvars[groups['k8s_control_plane'][0]]['kube_join_command'] }} --v=2"
       args:
         creates: /etc/kubernetes/kubelet.conf
+      register: join_result
+      retries: 5
+      delay: 20
+      until: join_result.rc == 0
