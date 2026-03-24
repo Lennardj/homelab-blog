@@ -22,14 +22,24 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
-    - name: Wait for ingress controller pods to become ready
-      command: >
-        kubectl wait --namespace ingress-nginx
-        --for=condition=ready pod
-        --selector=app.kubernetes.io/component=controller
-        --timeout=600s
+    - name: Wait for ingress controller pods to exist
+      command: kubectl get pods -n ingress-nginx
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+      register: ingress_pods
+      retries: 10
+      delay: 15
+      until: "'ingress-nginx-controller' in ingress_pods.stdout"
+
+    - name: Wait for ingress controller to stabilise
+      shell: |
+        kubectl get pods -n ingress-nginx --no-headers | grep Running || true | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: ingress_ready
+      retries: 15
+      delay: 20
+      until: ingress_ready.stdout|int >= 1
 
     - name: Install Metrics Server
       command: >
@@ -54,18 +64,25 @@
         KUBECONFIG: "{{ kubeconfig }}"
       failed_when: false
 
-    - name: Wait for metrics-server to be ready
-      command: >
-        kubectl wait --namespace kube-system
-        --for=condition=available deployment metrics-server
-        --timeout=120s
+    - name: Wait for metrics-server pods to exist
+      command: kubectl get pods -n kube-system
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-    - name: Install Local Path Provisioner
-      command: >
-        kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+      register: metrics_pods
+      retries: 10
+      delay: 15
+      until: "'metrics-server' in metrics_pods.stdout"
+
+    - name: Wait for metrics-server to stabilise
+      shell: |
+        kubectl get pods -n kube-system --no-headers | grep metrics-server | grep Running || true | wc -l
       environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: metrics_ready
+      retries: 10
+      delay: 20
+      until: metrics_ready.stdout|int >= 1
+
     # - name: Wait for PVCs
     #   command: >
     #     kubectl wait pvc --all
