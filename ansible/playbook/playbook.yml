@@ -9,15 +9,15 @@
       wait_for_connection:
         timeout: 120
       register: ssh_ready
-      retries: 5
-      delay: 10
+      retries: 20
+      delay: 20
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status --wait
       register: cloud_init_status
-      retries: 5
-      delay: 10
+      retries: 20
+      delay: 20
       until: cloud_init_status.rc == 0
       changed_when: false
   tasks:
@@ -63,7 +63,7 @@
         fuser /var/cache/apt/archives/lock >/dev/null 2>&1
       register: apt_lock
       retries: 20
-      delay: 5
+      delay: 20
       until: apt_lock.rc != 0
       changed_when: false
     - name: Install required packages
@@ -103,8 +103,8 @@
         path: /run/containerd/containerd.sock
         timeout: 30
       register: containerd_socket
-      retries: 5
-      delay: 10
+      retries: 20
+      delay: 20
       until: containerd_socket is succeeded
     - name: Add Kubernetes apt repo (pkgs.k8s.io)
       shell: |
@@ -161,15 +161,15 @@
       wait_for_connection:
         timeout: 120
       register: ssh_ready
-      retries: 5
-      delay: 10
+      retries: 20
+      delay: 20
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status --wait
       register: cloud_init_status
-      retries: 5
-      delay: 10
+      retries: 20
+      delay: 20
       until: cloud_init_status.rc == 0
       changed_when: false
   tasks:
@@ -198,7 +198,7 @@
       args:
         creates: /etc/kubernetes/admin.conf
       register: kubeadm_init
-      retries: 3
+      retries: 20
       delay: 30
       until: kubeadm_init.rc == 0
       when: cluster_check.rc != 0
@@ -255,15 +255,15 @@
       wait_for_connection:
         timeout: 120
       register: ssh_ready
-      retries: 5
-      delay: 10
+      retries: 20
+      delay: 20
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status --wait
       register: cloud_init_status
-      retries: 5
-      delay: 10
+      retries: 20
+      delay: 30
       until: cloud_init_status.rc == 0
       changed_when: false
   tasks:
@@ -272,6 +272,6 @@
       args:
         creates: /etc/kubernetes/kubelet.conf
       register: join_result
-      retries: 5
+      retries: 20
       delay: 20
       until: join_result.rc == 0

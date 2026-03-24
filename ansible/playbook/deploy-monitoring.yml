@@ -2,8 +2,10 @@
 - name: Deploy Monitoring Stack
   hosts: k8s_control_plane
   become: true
+  vars:
+    kubeconfig: /home/{{ ansible_user }}/.kube/config
   environment:
-    KUBECONFIG: /etc/kubernetes/admin.conf
+    KUBECONFIG: "{{ kubeconfig }}"
 
   tasks:
     - name: Install Helm
@@ -11,6 +13,10 @@
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
       args:
         creates: /usr/local/bin/helm
+      register: helm_install
+      retries: 20
+      delay: 20
+      until: helm_install.rc == 0
 
     - name: Copy monitoring manifests
       copy:
@@ -22,9 +28,17 @@
 
     - name: Add Prometheus Helm repo
       command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      register: helm_repo_add
+      retries: 20
+      delay: 20
+      until: helm_repo_add.rc == 0
 
     - name: Update Helm repos
       command: helm repo update
+      register: helm_repo_update
+      retries: 20
+      delay: 20
+      until: helm_repo_update.rc == 0
 
     - name: Install kube-prometheus-stack
       command: >
@@ -32,14 +46,35 @@
         prometheus-community/kube-prometheus-stack
         --namespace monitoring
         --values /tmp/monitoring/values.yaml
+      register: helm_install_stack
+      retries: 20
+      delay: 30
+      until: helm_install_stack.rc == 0
 
-    - name: Wait for Prometheus pods
-      command: >
-        kubectl wait pods
-        -n monitoring
-        --all
-        --for=condition=Ready
-        --timeout=300s
+    - name: Wait for monitoring pods to exist
+      command: kubectl get pods -n monitoring
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: monitoring_pods
+      retries: 20
+      delay: 20
+      until: "'prometheus' in monitoring_pods.stdout"
+
+    - name: Wait for monitoring stack to stabilise
+      shell: |
+        kubectl get pods -n monitoring --no-headers | grep Running || true | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: monitoring_ready
+      retries: 20
+      delay: 20
+      until: monitoring_ready.stdout|int >= 3
 
     - name: Deploy Grafana ingress
       command: kubectl apply -f /tmp/monitoring/grafana-ingress.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: grafana_ingress
+      retries: 20
+      delay: 20
+      until: grafana_ingress.rc == 0

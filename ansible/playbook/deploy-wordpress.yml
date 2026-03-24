@@ -1,6 +1,8 @@
 ---
 - name: Deploy WordPress to Kubernetes
   hosts: k8s_control_plane
+  vars:
+    kubeconfig: /home/{{ ansible_user }}/.kube/config
   become: true
   tasks:
     - name: Create application directory on master
@@ -8,23 +10,43 @@
         path: /opt/k8s/wordpress
         state: directory
         mode: "0755"
-    - name: Wait for ingress controller to be ready
-      command: >
-        kubectl wait --namespace ingress-nginx
-        --for=condition=ready pod
-        --selector=app.kubernetes.io/component=controller
-        --timeout=300s
+    - name: Wait for ingress controller pods to exist
+      command: kubectl get pods -n ingress-nginx
       environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: ingress_pods
+      retries: 20
+      delay: 20
+      until: "'ingress-nginx-controller' in ingress_pods.stdout"
 
-    - name: Wait for storage provisioner
-      command: >
-        kubectl wait --namespace local-path-storage
-        --for=condition=ready pod
-        --selector=app=local-path-provisioner
-        --timeout=300s
+    - name: Wait for ingress controller to stabilise
+      shell: |
+        kubectl get pods -n ingress-nginx --no-headers | grep Running || true | wc -l
       environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: ingress_ready
+      retries: 20
+      delay: 20
+      until: ingress_ready.stdout|int >= 1
+
+    - name: Wait for storage provisioner pods to exist
+      command: kubectl get pods -n local-path-storage
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: storage_pods
+      retries: 20
+      delay: 20
+      until: "'local-path-provisioner' in storage_pods.stdout"
+
+    - name: Wait for storage provisioner to stabilise
+      shell: |
+        kubectl get pods -n local-path-storage --no-headers | grep Running || true | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: storage_ready
+      retries: 20
+      delay: 20
+      until: storage_ready.stdout|int >= 1
     - name: Copy WordPress manifests to master
       copy:
         src: ../files/k8s/wordpress/
@@ -34,15 +56,27 @@
     - name: Apply WordPress manifests
       command: kubectl apply -k /opt/k8s/wordpress
       environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: wordpress_apply
+      retries: 20
+      delay: 20
+      until: wordpress_apply.rc == 0
 
-    - name: Wait for WordPress pods
+    - name: Wait for WordPress pods to exist
       command: kubectl get pods -n wordpress
       environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
+        KUBECONFIG: "{{ kubeconfig }}"
       register: wordpress_pods
-      changed_when: false
+      retries: 20
+      delay: 20
+      until: "'wordpress' in wordpress_pods.stdout"
 
-    - name: Show pod status
-      debug:
-        var: wordpress_pods.stdout_lines
+    - name: Wait for WordPress to stabilise
+      shell: |
+        kubectl get pods -n wordpress --no-headers | grep Running || true | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: wordpress_ready
+      retries: 20
+      delay: 20
+      until: wordpress_ready.stdout|int >= 1

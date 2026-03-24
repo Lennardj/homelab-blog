@@ -27,8 +27,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: ingress_pods
-      retries: 10
-      delay: 15
+      retries: 20
+      delay: 20
       until: "'ingress-nginx-controller' in ingress_pods.stdout"
 
     - name: Wait for ingress controller to stabilise
@@ -37,7 +37,7 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: ingress_ready
-      retries: 15
+      retries: 20
       delay: 20
       until: ingress_ready.stdout|int >= 1
 
@@ -69,8 +69,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: metrics_pods
-      retries: 10
-      delay: 15
+      retries: 20
+      delay: 20
       until: "'metrics-server' in metrics_pods.stdout"
 
     - name: Wait for metrics-server to stabilise
@@ -79,7 +79,7 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: metrics_ready
-      retries: 10
+      retries: 20
       delay: 20
       until: metrics_ready.stdout|int >= 1
 
