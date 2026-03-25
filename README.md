@@ -7,22 +7,69 @@ It automates the full lifecycle of:
 - Infrastructure provisioning  
 - Kubernetes cluster bootstrap  
 - Platform services deployment  
-- Application delivery (Hugo-based blog)
+- Application delivery (**WordPress + MariaDB**)
 
 > Designed to demonstrate **DevOps, Platform Engineering, and Solution Architecture principles** on homelab infrastructure.
 
 ---
 
-## 🧠 Architecture Overview
-GitHub (Markdown)
-→ Kubernetes Hugo Job
-→ NGINX
-→ Ingress Controller
-→ MetalLB (LoadBalancer)
-→ Cloudflare Tunnel
-→ Zero Trust
-→ lennardjohn.org
+## 🏗️ Architecture Diagram
 
+```mermaid
+flowchart TB
+
+User["User Browser"]
+Cloudflare["Cloudflare Tunnel + Zero Trust"]
+DNS["DNS / Domain"]
+
+MetalLB["MetalLB LoadBalancer"]
+Ingress["NGINX Ingress Controller"]
+
+WordPress["WordPress"]
+Database["MariaDB"]
+
+subgraph Kubernetes Cluster
+    KubeAPI["Kubernetes API"]
+    Calico["Calico CNI"]
+    Storage["Local Path Provisioner"]
+    Metrics["Metrics Server"]
+    Prometheus["Prometheus"]
+    Grafana["Grafana"]
+end
+
+subgraph Automation
+    Terraform["Terraform"]
+    Ansible["Ansible"]
+end
+
+subgraph Infrastructure
+    Proxmox["Proxmox Hypervisor"]
+    VMs["Kubernetes VMs"]
+    CloudInit["Cloud-init Templates"]
+end
+
+User --> DNS
+DNS --> Cloudflare
+Cloudflare --> MetalLB
+MetalLB --> Ingress
+Ingress --> WordPress
+WordPress --> Database
+
+WordPress --> KubeAPI
+Prometheus --> KubeAPI
+Grafana --> Prometheus
+
+Terraform --> Proxmox
+Proxmox --> VMs
+CloudInit --> VMs
+Ansible --> VMs
+Ansible --> KubeAPI
+
+VMs --> KubeAPI
+KubeAPI --> Calico
+KubeAPI --> Storage
+KubeAPI --> Metrics
+```
 
 ### Infrastructure Pipeline
 
@@ -52,9 +99,9 @@ GitHub (Markdown)
 ---
 
 ### 🧩 Application Layer
-- Hugo-based static blog generation
-- Markdown content stored in GitHub
-- Kubernetes Job-based build process
+- WordPress deployed on Kubernetes
+- MariaDB database with persistent storage
+- Ingress-based routing
 
 ---
 
@@ -102,16 +149,11 @@ homelab-blog/
    - Install platform services (Ingress, Storage, Monitoring)
 
 3. **Kubernetes**
-   - Deploy application stack (Hugo / WordPress)
+   - Deploy WordPress + MariaDB
    - Configure ingress and routing
 
-4. **GitHub**
-   - Push Markdown content
-   - Trigger Hugo builds
-
-5. Access your blog via:
+4. Access your blog via:
     [Lennardjohn.org](https://lennardjohn.org/)
-
 
 ---
 
