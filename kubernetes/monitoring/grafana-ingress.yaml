@@ -8,7 +8,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: grafana.local
+    - host: grafana.lennardjohn.org
       http:
         paths:
           - path: /
