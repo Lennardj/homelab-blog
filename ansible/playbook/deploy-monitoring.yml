@@ -20,7 +20,7 @@
 
     - name: Copy monitoring manifests
       copy:
-        src: ../files/k8s/monitoring/
+        src: ../../kubernetes/monitoring/
         dest: /tmp/monitoring/
 
     - name: Create monitoring namespace

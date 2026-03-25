@@ -41,6 +41,32 @@
       delay: 20
       until: ingress_ready.stdout|int >= 1
 
+    - name: Install Local Path Provisioner
+      command: >
+        kubectl apply -f
+        https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for Local Path Provisioner pods to exist
+      command: kubectl get pods -n local-path-storage
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: storage_pods
+      retries: 20
+      delay: 20
+      until: "'local-path-provisioner' in storage_pods.stdout"
+
+    - name: Wait for Local Path Provisioner to stabilise
+      shell: |
+        kubectl get pods -n local-path-storage --no-headers | grep Running || true | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: storage_ready
+      retries: 20
+      delay: 20
+      until: storage_ready.stdout|int >= 1
+
     - name: Install Metrics Server
       command: >
         kubectl apply -f
