@@ -128,13 +128,14 @@ Instead of relying on fixed waits, it uses:
 ---
 
 ## 🏗️ Folder Structure
+```
 homelab-blog/
 ├── terraform/ # Proxmox & Cloudflare infrastructure
 ├── ansible/ # Kubernetes bootstrap & platform deployment
 ├── kubernetes/ # Manifests (Ingress, WordPress, Monitoring, etc.)
 ├── blog/ # Markdown content + Hugo config
 └── scripts/ # Helper scripts (deploy, trigger builds)
-
+```
 
 ---
 
