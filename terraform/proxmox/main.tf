@@ -13,11 +13,8 @@ resource "proxmox_vm_qemu" "k8s_control_plane" {
   description = "Master node for the kubernetes cluster"
 
   # Cloud init template
-  clone      = "ubuntu-cloud" # make into variable, don't hardcode
+  clone      = var.vm_template
   full_clone = true
-
-
-
 
   os_type          = "cloud-init"
   ipconfig0        = "ip=dhcp"
@@ -44,10 +41,8 @@ resource "proxmox_vm_qemu" "k8s_control_plane" {
     storage = var.disk_storage
   }
   cpu {
-    # already baked into tamplate but it is a good idea to set them
     cores   = var.k8s_control_plane.cores
-    sockets = 2 # make into variable, don't hardcode
-
+    sockets = var.vm_sockets
   }
   network {
     id     = 0
@@ -76,7 +71,7 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   description = "Worker nodes node for the kubernetes cluster"
 
 
-  clone      = "ubuntu-cloud" # make into variable, don't hardcode
+  clone      = var.vm_template
   full_clone = true
 
   os_type          = "cloud-init"
@@ -108,7 +103,7 @@ resource "proxmox_vm_qemu" "k8s_workers" {
 
   cpu {
     cores   = var.k8s_workers.cores
-    sockets = 2
+    sockets = var.vm_sockets
   }
 
   network {

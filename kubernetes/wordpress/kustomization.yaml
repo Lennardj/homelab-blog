@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: wordpress
 resources:
   - namespace.yaml
-  - secrets.yaml
   - pvc.yaml
   - mariadb.yaml
   - wordpress.yaml

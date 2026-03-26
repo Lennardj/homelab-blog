@@ -44,7 +44,7 @@
     - name: Install Local Path Provisioner
       command: >
         kubectl apply -f
-        https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+        https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.35/deploy/local-path-storage.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
@@ -70,7 +70,7 @@
     - name: Install Metrics Server
       command: >
         kubectl apply -f
-        https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+        https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 

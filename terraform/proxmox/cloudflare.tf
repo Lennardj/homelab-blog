@@ -6,15 +6,15 @@ resource "random_id" "tunnel_secret" {
   byte_length = 35
 }
 
-resource "cloudflare_tunnel" "homelab" {
+resource "cloudflare_zero_trust_tunnel_cloudflared" "homelab" {
   account_id = var.cloudflare_account_id
   name       = "homelab-k8s"
   secret     = random_id.tunnel_secret.b64_std
 }
 
-resource "cloudflare_tunnel_config" "homelab" {
+resource "cloudflare_zero_trust_tunnel_cloudflared_config" "homelab" {
   account_id = var.cloudflare_account_id
-  tunnel_id  = cloudflare_tunnel.homelab.id
+  tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.homelab.id
 
   config {
     ingress_rule {
@@ -35,18 +35,18 @@ resource "cloudflare_tunnel_config" "homelab" {
 }
 
 # DNS CNAME records pointing to the tunnel
-resource "cloudflare_record" "blog" {
+resource "cloudflare_dns_record" "blog" {
   zone_id = var.cloudflare_zone_id
   name    = "blog"
-  content = "${cloudflare_tunnel.homelab.id}.cfargotunnel.com"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.homelab.id}.cfargotunnel.com"
   type    = "CNAME"
   proxied = true
 }
 
-resource "cloudflare_record" "grafana" {
+resource "cloudflare_dns_record" "grafana" {
   zone_id = var.cloudflare_zone_id
   name    = "grafana"
-  content = "${cloudflare_tunnel.homelab.id}.cfargotunnel.com"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.homelab.id}.cfargotunnel.com"
   type    = "CNAME"
   proxied = true
 }

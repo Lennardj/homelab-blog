@@ -49,7 +49,7 @@
     command: >
       kubectl patch svc ingress-nginx-controller
       -n ingress-nginx
-      -p '{"spec":{"type":"LoadBalancer","loadBalancerIP":"192.168.1.70"}}'
+      -p '{"spec":{"type":"LoadBalancer","loadBalancerIP":"{{ lookup('env', 'INGRESS_IP') }}"}}'
     environment:
       KUBECONFIG: "{{ kubeconfig }}"
     register: ingress_patch

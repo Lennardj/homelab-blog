@@ -58,9 +58,19 @@ variable "ubuntu_iso" {
 
 variable "cloudinit-password" {
   type      = string
-  default   = "lennard"
   sensitive = true
+}
 
+variable "vm_template" {
+  description = "Proxmox cloud-init template name to clone"
+  type        = string
+  default     = "ubuntu-cloud"
+}
+
+variable "vm_sockets" {
+  description = "Number of CPU sockets per VM"
+  type        = number
+  default     = 2
 }
 
 
