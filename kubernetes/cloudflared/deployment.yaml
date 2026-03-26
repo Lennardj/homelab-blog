@@ -18,8 +18,6 @@ spec:
           image: cloudflare/cloudflared:2024.10.0
           args:
             - tunnel
-            - --config
-            - /etc/cloudflared/config.yaml
             - --no-autoupdate
             - run
             - --token
@@ -51,11 +49,3 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
-          volumeMounts:
-            - name: config
-              mountPath: /etc/cloudflared
-              readOnly: true
-      volumes:
-        - name: config
-          configMap:
-            name: cloudflared-config

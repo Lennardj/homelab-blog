@@ -9,7 +9,6 @@
     tunnel_id: "{{ terraform_output.cloudflare_tunnel_id.value }}"
     account_id: "{{ terraform_output.cloudflare_account_id.value }}"
     cloudflare_api_token: "{{ lookup('env', 'TF_VAR_cloudflare_api_token') }}"
-    domain_name: "lennardjohn.org"
 
   tasks:
     - name: Fetch tunnel token from Cloudflare API
@@ -37,12 +36,6 @@
         src: /work/kubernetes/cloudflared/
         dest: /opt/k8s/cloudflared/
 
-    - name: Render cloudflared configmap
-      template:
-        src: /work/kubernetes/cloudflared/configmap.yaml.j2
-        dest: /opt/k8s/cloudflared/configmap.yaml
-        mode: "0644"
-
     - name: Apply namespace
       command: kubectl apply -f /opt/k8s/cloudflared/namespace.yaml
       environment:
@@ -54,11 +47,6 @@
           --namespace=cloudflared \
           --from-literal=token="{{ tunnel_token }}" \
           --dry-run=client -o yaml | kubectl apply -f -
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-
-    - name: Apply configmap
-      command: kubectl apply -f /opt/k8s/cloudflared/configmap.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 

@@ -25,3 +25,23 @@ resource "cloudflare_dns_record" "grafana" {
   proxied = true
   ttl     = 1
 }
+
+# Configure tunnel ingress rules via API (v5 provider has no config resource)
+resource "terraform_data" "tunnel_config" {
+  input = {
+    account_id = var.cloudflare_account_id
+    tunnel_id  = cloudflare_zero_trust_tunnel_cloudflared.homelab.id
+    api_token  = var.cloudflare_api_token
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+curl -sf -X PUT \
+  "https://api.cloudflare.com/client/v4/accounts/${self.input.account_id}/cfd_tunnel/${self.input.tunnel_id}/configurations" \
+  -H "Authorization: Bearer ${self.input.api_token}" \
+  -H "Content-Type: application/json" \
+  -d '{"config":{"ingress":[{"hostname":"blog.lennardjohn.org","service":"http://ingress-nginx-controller.ingress-nginx.svc.cluster.local"},{"hostname":"grafana.lennardjohn.org","service":"http://ingress-nginx-controller.ingress-nginx.svc.cluster.local"},{"service":"http_status:404"}]}}' \
+  | jq -e '.success == true'
+EOT
+  }
+}
