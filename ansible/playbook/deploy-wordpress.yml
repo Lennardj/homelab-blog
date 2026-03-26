@@ -49,7 +49,7 @@
       until: storage_ready.stdout|int >= 1
     - name: Copy WordPress manifests to master
       copy:
-        src: ../files/k8s/wordpress/
+        src: ../../kubernetes/wordpress/
         dest: /opt/k8s/wordpress/
         mode: "0644"
 

@@ -31,3 +31,10 @@ output "all_nodes_hostnames" {
     [for w in proxmox_vm_qemu.k8s_workers : w.name]
   )
 }
+
+# Cloudflare Tunnel token — used by Ansible to deploy cloudflared in K8s
+output "cloudflare_tunnel_token" {
+  description = "Cloudflare Tunnel token for cloudflared deployment"
+  value       = cloudflare_tunnel.homelab.tunnel_token
+  sensitive   = true
+}

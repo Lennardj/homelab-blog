@@ -106,7 +106,7 @@ KubeAPI --> Metrics
 ---
 
 ### ⚡ Infrastructure as Code
-- Terraform (Proxmox + Cloudflare)
+- Terraform (Proxmox)
 - Dynamic VM provisioning via variables
 - Cloud-init templates for rapid deployment
 
@@ -130,28 +130,32 @@ Instead of relying on fixed waits, it uses:
 ## 🏗️ Folder Structure
 ```
 homelab-blog/
-├── terraform/ # Proxmox & Cloudflare infrastructure
-├── ansible/ # Kubernetes bootstrap & platform deployment
-├── kubernetes/ # Manifests (Ingress, WordPress, Monitoring, etc.)
-├── blog/ # Markdown content + Hugo config
-└── scripts/ # Helper scripts (deploy, trigger builds)
+├── terraform/    # Proxmox & Cloudflare infrastructure
+├── ansible/      # Kubernetes bootstrap & platform deployment
+├── kubernetes/   # Manifests (WordPress, Monitoring, MetalLB)
+└── scripts/      # Helper scripts (inventory build, local deploy)
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-1. **Terraform**
-   - Provision Proxmox VMs
-   - Configure Cloudflare Tunnel + DNS
+1. **Configure credentials**
+   - Copy `.env.example` to `.env` and fill in Proxmox API credentials and SSH key path
 
-2. **Ansible**
-   - Bootstrap Kubernetes cluster
-   - Install platform services (Ingress, Storage, Monitoring)
-
-3. **Kubernetes**
+2. **Run the pipeline**
+   ```bash
+   docker-compose up
+   ```
+   This will automatically:
+   - Provision Proxmox VMs via Terraform (outputs IPs to `artifacts/output.json`)
+   - Build the Ansible inventory from Terraform output
+   - Bootstrap the Kubernetes cluster
+   - Install platform services (Ingress, Storage, MetalLB, Monitoring)
    - Deploy WordPress + MariaDB
-   - Configure ingress and routing
+
+3. **Configure Cloudflare**
+   - Set up Cloudflare Tunnel + Zero Trust manually to expose the cluster ingress
 
 4. Access your blog via:
     [Lennardjohn.org](https://lennardjohn.org/)
@@ -188,7 +192,7 @@ This project demonstrates:
 
 - Multi-cluster deployment (Talos / cloud failover)
 - CI/CD pipeline (GitHub Actions)
-- Migration from Hugo → Next.js frontend
+- Automate Cloudflare Tunnel provisioning via Terraform
 - External database management
 - Full Cloudflare Zero Trust integration for all services
 

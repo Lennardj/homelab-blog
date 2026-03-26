@@ -1,20 +1,20 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: grafana
-  namespace: monitoring
+  name: wordpress
+  namespace: wordpress
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
 spec:
   ingressClassName: nginx
   rules:
-    - host: grafana.local
+    - host: blog.lennardjohn.org
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: kube-prometheus-stack-grafana
+                name: wordpress
                 port:
                   number: 80

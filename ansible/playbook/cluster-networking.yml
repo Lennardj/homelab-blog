@@ -33,7 +33,7 @@
 
   - name: Copy MetalLB config
     copy:
-      src: "{{ playbook_dir }}/../files/k8s/metallb/metallb-config.yaml"
+      src: "{{ playbook_dir }}/../../kubernetes/metallb/metallb-config.yaml"
       dest: /tmp/metallb-config.yaml
 
   - name: Apply MetalLB config
