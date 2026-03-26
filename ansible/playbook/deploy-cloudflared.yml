@@ -56,6 +56,30 @@
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for cloudflared rollout
-      command: kubectl rollout status deployment/cloudflared -n cloudflared --timeout=120s
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
+      block:
+        - name: Rollout status
+          command: kubectl rollout status deployment/cloudflared -n cloudflared --timeout=120s
+          environment:
+            KUBECONFIG: "{{ kubeconfig }}"
+      rescue:
+        - name: Dump pod status
+          command: kubectl get pods -n cloudflared -o wide
+          environment:
+            KUBECONFIG: "{{ kubeconfig }}"
+          failed_when: false
+
+        - name: Dump pod describe
+          command: kubectl describe pods -n cloudflared
+          environment:
+            KUBECONFIG: "{{ kubeconfig }}"
+          failed_when: false
+
+        - name: Dump pod logs
+          shell: kubectl logs -n cloudflared -l app=cloudflared --tail=50 2>&1 || true
+          environment:
+            KUBECONFIG: "{{ kubeconfig }}"
+          failed_when: false
+
+        - name: Fail after diagnostics
+          fail:
+            msg: "cloudflared rollout timed out - see pod describe and logs above"
