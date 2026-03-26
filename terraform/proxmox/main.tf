@@ -19,7 +19,7 @@ resource "proxmox_vm_qemu" "k8s_control_plane" {
   os_type          = "cloud-init"
   ipconfig0        = "ip=dhcp"
   ciuser           = "lennard"
-  cipassword       = var.cloudinit-password
+  cipassword       = var.cloudinit_password
   ciupgrade        = true
   automatic_reboot = true
   sshkeys          = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOcZXl91NXf+09ntGlxlLEmg4a+I/yvXgFGfkm2sKgNc ljohn@Lennard-John-PC"
@@ -77,7 +77,7 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   os_type          = "cloud-init"
   ipconfig0        = "ip=dhcp"
   ciuser           = "lennard"
-  cipassword       = var.cloudinit-password
+  cipassword       = var.cloudinit_password
   ciupgrade        = true
   automatic_reboot = true
   sshkeys          = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOcZXl91NXf+09ntGlxlLEmg4a+I/yvXgFGfkm2sKgNc ljohn@Lennard-John-PC"

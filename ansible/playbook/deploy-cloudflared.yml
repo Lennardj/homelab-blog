@@ -1,0 +1,47 @@
+---
+- name: Deploy cloudflared tunnel
+  hosts: k8s_control_plane
+  become: true
+  vars:
+    kubeconfig: /home/{{ ansible_user }}/.kube/config
+    terraform_output: "{{ lookup('file', '/artifacts/output.json') | from_json }}"
+    tunnel_token: "{{ terraform_output.cloudflare_tunnel_token.value }}"
+
+  tasks:
+    - name: Copy cloudflared manifests to master
+      copy:
+        src: /work/kubernetes/cloudflared/
+        dest: /opt/k8s/cloudflared/
+        mode: "0644"
+
+    - name: Apply namespace and configmap
+      command: kubectl apply -f /opt/k8s/cloudflared/{{ item }}
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      loop:
+        - namespace.yaml
+        - configmap.yaml
+
+    - name: Create cloudflared tunnel token secret
+      shell: |
+        kubectl create secret generic cloudflared-token \
+          --namespace=cloudflared \
+          --from-literal=token="{{ tunnel_token }}" \
+          --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Apply cloudflared deployment
+      command: kubectl apply -f /opt/k8s/cloudflared/deployment.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for cloudflared pod to be ready
+      shell: |
+        kubectl get pods -n cloudflared --no-headers | grep Running || true | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cloudflared_ready
+      retries: 20
+      delay: 10
+      until: cloudflared_ready.stdout|int >= 1

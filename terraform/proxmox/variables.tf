@@ -56,7 +56,7 @@ variable "ubuntu_iso" {
 
 
 
-variable "cloudinit-password" {
+variable "cloudinit_password" {
   type      = string
   sensitive = true
 }
