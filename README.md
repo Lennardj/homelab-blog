@@ -218,9 +218,15 @@ Topics include:
 
 ---
 
-## 💬 Interview Talking Point
+## 💬 Design Insight
 
-> “I designed this system to be resilient rather than deterministic.  
-> Instead of relying on timing assumptions, I implemented retry-based convergence so the platform can stabilise even on constrained hardware.”
+This platform was designed to be **resilient rather than deterministic**.
+
+Instead of relying on fixed timing assumptions (e.g. `kubectl wait`), the system uses:
+- Retry-based execution
+- Progressive readiness checks
+- Idempotent operations
+
+This allows the platform to **converge to a working state**, even on slow or resource-constrained infrastructure.
 
 ---
