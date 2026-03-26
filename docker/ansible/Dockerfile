@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir ansible==13.5.0
+RUN pip install --no-cache-dir ansible==13.5.0 requests
 
 # Make sure /bin/bash exists (it does in slim, but just being explicit)
 SHELL ["/bin/sh", "-lc"]

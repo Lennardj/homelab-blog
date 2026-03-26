@@ -23,7 +23,7 @@
 
   - name: Wait for MetalLB controller to stabilise
     shell: |
-      kubectl get pods -n metallb-system --no-headers | grep controller | grep Running || true | wc -l
+      kubectl get pods -n metallb-system --no-headers | (grep controller | grep Running || true) | wc -l
     environment:
       KUBECONFIG: "{{ kubeconfig }}"
     register: metallb_ready
@@ -33,7 +33,7 @@
 
   - name: Copy MetalLB config
     copy:
-      src: "{{ playbook_dir }}/../../kubernetes/metallb/metallb-config.yaml"
+      src: /work/kubernetes/metallb/metallb-config.yaml
       dest: /tmp/metallb-config.yaml
 
   - name: Apply MetalLB config

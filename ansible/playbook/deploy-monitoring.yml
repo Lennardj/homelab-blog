@@ -25,6 +25,8 @@
 
     - name: Create monitoring namespace
       command: kubectl apply -f /tmp/monitoring/namespace.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Add Prometheus Helm repo
       command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -63,7 +65,7 @@
 
     - name: Wait for monitoring stack to stabilise
       shell: |
-        kubectl get pods -n monitoring --no-headers | grep Running || true | wc -l
+        kubectl get pods -n monitoring --no-headers | (grep Running || true) | wc -l
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: monitoring_ready

@@ -5,9 +5,11 @@ metadata:
   namespace: cloudflared
 data:
   config.yaml: |
+    tunnel: {{ tunnel_id }}
+
     ingress:
-      - hostname: blog.lennardjohn.org
+      - hostname: blog.{{ domain_name }}
         service: http://ingress-nginx-controller.ingress-nginx.svc.cluster.local
-      - hostname: grafana.lennardjohn.org
+      - hostname: grafana.{{ domain_name }}
         service: http://ingress-nginx-controller.ingress-nginx.svc.cluster.local
       - service: http_status:404

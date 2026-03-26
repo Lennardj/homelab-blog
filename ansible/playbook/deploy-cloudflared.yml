@@ -2,25 +2,51 @@
 - name: Deploy cloudflared tunnel
   hosts: k8s_control_plane
   become: true
+
   vars:
-    kubeconfig: /home/{{ ansible_user }}/.kube/config
+    kubeconfig: "/home/{{ ansible_user }}/.kube/config"
     terraform_output: "{{ lookup('file', '/artifacts/output.json') | from_json }}"
-    tunnel_token: "{{ terraform_output.cloudflare_tunnel_token.value }}"
+    tunnel_id: "{{ terraform_output.cloudflare_tunnel_id.value }}"
+    account_id: "{{ terraform_output.cloudflare_account_id.value }}"
+    cloudflare_api_token: "{{ lookup('env', 'TF_VAR_cloudflare_api_token') }}"
+    domain_name: "lennardjohn.org"
 
   tasks:
-    - name: Copy cloudflared manifests to master
+    - name: Fetch tunnel token from Cloudflare API
+      uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ account_id }}/cfd_tunnel/{{ tunnel_id }}/token"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: "application/json"
+        return_content: true
+      register: tunnel_token_response
+
+    - name: Set tunnel token fact
+      set_fact:
+        tunnel_token: "{{ tunnel_token_response.json.result }}"
+
+    - name: Ensure cloudflared directory exists
+      file:
+        path: /opt/k8s/cloudflared
+        state: directory
+        mode: "0755"
+
+    - name: Copy manifests to control plane
       copy:
         src: /work/kubernetes/cloudflared/
         dest: /opt/k8s/cloudflared/
+
+    - name: Render cloudflared configmap
+      template:
+        src: /work/kubernetes/cloudflared/configmap.yaml.j2
+        dest: /opt/k8s/cloudflared/configmap.yaml
         mode: "0644"
 
-    - name: Apply namespace and configmap
-      command: kubectl apply -f /opt/k8s/cloudflared/{{ item }}
+    - name: Apply namespace
+      command: kubectl apply -f /opt/k8s/cloudflared/namespace.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-      loop:
-        - namespace.yaml
-        - configmap.yaml
 
     - name: Create cloudflared tunnel token secret
       shell: |
@@ -31,17 +57,17 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
+    - name: Apply configmap
+      command: kubectl apply -f /opt/k8s/cloudflared/configmap.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
     - name: Apply cloudflared deployment
       command: kubectl apply -f /opt/k8s/cloudflared/deployment.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
-    - name: Wait for cloudflared pod to be ready
-      shell: |
-        kubectl get pods -n cloudflared --no-headers | grep Running || true | wc -l
+    - name: Wait for cloudflared rollout
+      command: kubectl rollout status deployment/cloudflared -n cloudflared --timeout=120s
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-      register: cloudflared_ready
-      retries: 20
-      delay: 10
-      until: cloudflared_ready.stdout|int >= 1

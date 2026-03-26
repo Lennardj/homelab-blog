@@ -17,7 +17,7 @@ output "worker_ips" {
 # All Node IPs
 output "all_nodes_ips" {
   description = "All Kubernetes node IP addresses (control + workers)"
-  value       = concat(
+  value = concat(
     [proxmox_vm_qemu.k8s_control_plane.default_ipv4_address],
     [for w in proxmox_vm_qemu.k8s_workers : w.default_ipv4_address]
   )
@@ -32,9 +32,15 @@ output "all_nodes_hostnames" {
   )
 }
 
-# Cloudflare Tunnel token — used by Ansible to deploy cloudflared in K8s
-output "cloudflare_tunnel_token" {
-  description = "Cloudflare Tunnel token for cloudflared deployment"
-  value       = cloudflare_zero_trust_tunnel_cloudflared.homelab.tunnel_token
+# Cloudflare Tunnel ID — used in cloudflared ConfigMap
+output "cloudflare_tunnel_id" {
+  description = "Cloudflare tunnel ID"
+  value       = cloudflare_zero_trust_tunnel_cloudflared.homelab.id
+}
+
+# Cloudflare account ID — used by Ansible to fetch tunnel token via API
+output "cloudflare_account_id" {
+  description = "Cloudflare account ID"
+  value       = var.cloudflare_account_id
   sensitive   = true
 }

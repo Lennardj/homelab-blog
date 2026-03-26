@@ -65,6 +65,7 @@
       retries: 20
       delay: 20
       until: apt_lock.rc != 0
+      failed_when: false
       changed_when: false
     - name: Install required packages
       apt:

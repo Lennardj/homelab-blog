@@ -33,7 +33,7 @@
 
     - name: Wait for ingress controller to stabilise
       shell: |
-        kubectl get pods -n ingress-nginx --no-headers | grep Running || true | wc -l
+        kubectl get pods -n ingress-nginx --no-headers | (grep Running || true) | wc -l
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: ingress_ready
@@ -59,7 +59,7 @@
 
     - name: Wait for Local Path Provisioner to stabilise
       shell: |
-        kubectl get pods -n local-path-storage --no-headers | grep Running || true | wc -l
+        kubectl get pods -n local-path-storage --no-headers | (grep Running || true) | wc -l
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: storage_ready
@@ -101,7 +101,7 @@
 
     - name: Wait for metrics-server to stabilise
       shell: |
-        kubectl get pods -n kube-system --no-headers | grep metrics-server | grep Running || true | wc -l
+        kubectl get pods -n kube-system --no-headers | (grep metrics-server | grep Running || true) | wc -l
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: metrics_ready
