@@ -17,7 +17,7 @@ resource "proxmox_vm_qemu" "k8s_control_plane" {
   full_clone = true
 
   os_type          = "cloud-init"
-  ipconfig0        = "ip=dhcp"
+  ipconfig0        = "ip=${var.master_ip}/24,gw=${var.vm_gateway}"
   ciuser           = "lennard"
   cipassword       = var.cloudinit_password
   ciupgrade        = true
@@ -75,7 +75,7 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   full_clone = true
 
   os_type          = "cloud-init"
-  ipconfig0        = "ip=dhcp"
+  ipconfig0        = "ip=${var.worker_ips[each.key]}/24,gw=${var.vm_gateway}"
   ciuser           = "lennard"
   cipassword       = var.cloudinit_password
   ciupgrade        = true

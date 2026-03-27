@@ -36,6 +36,24 @@ variable "vm_bridge" {
   default     = "vmbr0"
 }
 
+variable "vm_gateway" {
+  description = "Default gateway for VM static IPs"
+  type        = string
+  default     = "192.168.1.254"
+}
+
+variable "master_ip" {
+  description = "Static IP for the control plane node"
+  type        = string
+  default     = "192.168.1.70"
+}
+
+variable "worker_ips" {
+  description = "Static IPs for worker nodes, index-aligned with worker count"
+  type        = list(string)
+  default     = ["192.168.1.71", "192.168.1.72"]
+}
+
 variable "iso_storage" {
   description = "Storage containing ISO"
   type        = string
