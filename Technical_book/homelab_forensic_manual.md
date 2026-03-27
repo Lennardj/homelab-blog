@@ -17,6 +17,70 @@ It is intended as:
 
 ---
 
+### Incident #3 — Ingress EXTERNAL-IP Pending (MetalLB Pool vs DHCP IP Conflict)
+
+**Date:** 2026-03-27
+**Symptom:** `kubectl get svc -n ingress-nginx ingress-nginx-controller` showed `EXTERNAL-IP: <pending>` indefinitely. Accessing `blog.lennardjohn.org` and `grafana.lennardjohn.org` locally returned 404.
+
+**Diagnostic commands run:**
+```bash
+kubectl get svc -n ingress-nginx ingress-nginx-controller
+# NAME                       TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)
+# ingress-nginx-controller   LoadBalancer   10.106.231.233   <pending>     80:31280/TCP,443:31148/TCP
+
+kubectl get ingress -A
+# NAMESPACE    NAME       HOSTS                     ADDRESS        PORTS
+# monitoring   grafana    grafana.lennardjohn.org   192.168.1.70   80
+# wordpress    wordpress  blog.lennardjohn.org      192.168.1.70   80
+```
+
+**Root cause analysis:**
+
+Two overlapping issues were found:
+
+**Issue 1: INGRESS_IP outside MetalLB pool**
+`.env` had `INGRESS_IP=192.168.1.70`. The MetalLB pool was `192.168.1.80-192.168.1.90`. The `cluster-networking.yml` Ansible playbook patches the ingress service with `loadBalancerIP: 192.168.1.70`, but MetalLB can only assign IPs within its configured pool. Since `.70` was outside the pool, MetalLB refused to assign it — hence `<pending>`. Fix: set `INGRESS_IP=192.168.1.80`.
+
+**Issue 2: DHCP could assign MetalLB-range IPs to VMs**
+VMs were using `ip=dhcp` in cloud-init. The router's DHCP pool covered the same range as MetalLB (`.80-.90`). On a rebuild, DHCP could assign `.80` to a VM, stealing the IP MetalLB needs for the ingress controller. Fix: switch VMs to static IPs outside the MetalLB range.
+
+**Fix applied:**
+
+`terraform/proxmox/main.tf`:
+```hcl
+# Before
+ipconfig0 = "ip=dhcp"
+
+# After (control plane)
+ipconfig0 = "ip=${var.master_ip}/24,gw=${var.vm_gateway}"
+
+# After (workers)
+ipconfig0 = "ip=${var.worker_ips[each.key]}/24,gw=${var.vm_gateway}"
+```
+
+`terraform/proxmox/variables.tf` — added:
+```hcl
+variable "vm_gateway"  { default = "192.168.1.254" }
+variable "master_ip"   { default = "192.168.1.70" }
+variable "worker_ips"  { default = ["192.168.1.71", "192.168.1.72"] }
+```
+
+Final IP layout — no overlaps:
+```
+k8s-master-01:  192.168.1.70  (VM static)
+k8s-worker-1:   192.168.1.71  (VM static)
+k8s-worker-2:   192.168.1.72  (VM static)
+MetalLB pool:   192.168.1.80–192.168.1.90
+Ingress IP:     192.168.1.80
+```
+
+**Interview talking points:**
+- MetalLB L2 mode requires the IP pool to be on the same subnet as the nodes but must not overlap with DHCP or static node IPs. Always plan IP ranges before deployment.
+- `<pending>` on a LoadBalancer service means no cloud provider or MetalLB controller could satisfy the IP request — check the MetalLB controller logs (`kubectl logs -n metallb-system -l component=controller`) for the reason.
+- Static IPs in cloud-init make infrastructure reproducible — critical for automated pipelines where DHCP assignments can change between runs.
+
+---
+
 ## NOTE FOR CLAUDE — READ THIS BEFORE PROCESSING TRANSCRIPTS
 
 When you process the chat history files added to this folder, apply the same standard used in the **Incident Reports** section below. For every error, debugging session, or architectural decision found in the transcripts:
