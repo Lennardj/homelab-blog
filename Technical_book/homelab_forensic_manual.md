@@ -83,6 +83,20 @@ Ingress IP:     192.168.1.80
 
 ## NOTE FOR CLAUDE — READ THIS BEFORE PROCESSING TRANSCRIPTS
 
+### Source Reference Index Rule
+Every new chat transcript processed must be scanned for:
+- Any `image:` or `FROM` references (Docker images)
+- Any `https://` URLs used in `kubectl apply -f`, `curl`, or `helm repo add`
+- Any Terraform provider `source` and `version` entries
+- Any external API endpoints called
+
+For each one found, add a row to the relevant table in the **Source Reference Index** section. Include:
+- The exact URL or image tag
+- Where in the codebase it appears
+- Why that specific version or source was chosen (if mentioned in the transcript)
+
+If a URL or image was changed during the project (e.g. version bump or provider migration), document both the old and new value and the reason for the change.
+
 When you process the chat history files added to this folder, apply the same standard used in the **Incident Reports** section below. For every error, debugging session, or architectural decision found in the transcripts:
 
 1. **Create an Incident Report** (if it was a real error/debug session) with:
@@ -199,6 +213,106 @@ Once all files are present, the document will be populated in full following the
 - 8.3 Secrets Management (External Secrets / Vault)
 - 8.4 Alerting (Prometheus AlertManager)
 - 8.5 Day-2 Operations
+
+### Part 9: Source Reference Index
+- 9.1 Docker Base Images
+- 9.2 Kubernetes Application Images
+- 9.3 Raw Manifest URLs (kubectl apply -f)
+- 9.4 Helm Chart Repositories
+- 9.5 Terraform Providers
+- 9.6 External APIs
+
+---
+
+## Source Reference Index
+
+Every external dependency used in this project — where it comes from, what version, and why.
+
+---
+
+### Docker Base Images
+
+| Image | Source | Used In |
+|---|---|---|
+| `hashicorp/terraform:1.14` | [Docker Hub — HashiCorp official](https://hub.docker.com/r/hashicorp/terraform) | `docker/terraform/Dockerfile` |
+| `python:3.12.0-slim` | [Docker Hub — Python official](https://hub.docker.com/_/python) | `docker/ansible/Dockerfile` |
+
+**Why these:**
+- `hashicorp/terraform` — official image from HashiCorp, pinned to `1.14` for reproducibility
+- `python:3.12.0-slim` — slim variant reduces image size; Python needed for Ansible and `build_inventory.py`
+
+---
+
+### Kubernetes Application Images
+
+| Image | Registry | Used In |
+|---|---|---|
+| `cloudflare/cloudflared:2024.10.0` | [Docker Hub — Cloudflare official](https://hub.docker.com/r/cloudflare/cloudflared) | `kubernetes/cloudflared/deployment.yaml` |
+| `mariadb:11` | [Docker Hub — MariaDB official](https://hub.docker.com/_/mariadb) | `kubernetes/wordpress/mariadb.yaml` |
+| `wordpress:php8.2-apache` | [Docker Hub — WordPress official](https://hub.docker.com/_/wordpress) | `kubernetes/wordpress/wordpress.yaml` |
+
+**Why these:**
+- `cloudflared:2024.10.0` — pinned to avoid breaking changes; Cloudflare releases frequently
+- `mariadb:11` — major version pin; MariaDB 11 is the current LTS release
+- `wordpress:php8.2-apache` — Apache variant chosen over FPM for simplicity (built-in web server); PHP 8.2 is current stable
+
+---
+
+### Raw Manifest URLs (kubectl apply -f)
+
+| Component | Version | URL | Source Org |
+|---|---|---|---|
+| NGINX Ingress Controller | `controller-v1.10.1` | `https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml` | kubernetes/ingress-nginx |
+| MetalLB | `v0.14.5` | `https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml` | metallb/metallb |
+| Local Path Provisioner | `v0.0.35` | `https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.35/deploy/local-path-storage.yaml` | rancher/local-path-provisioner |
+| Metrics Server | `v0.8.1` | `https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml` | kubernetes-sigs/metrics-server |
+| Calico CNI | `v3.27.0` | `https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml` | projectcalico/calico |
+
+**Why baremetal for NGINX Ingress:**
+The standard cloud provider deploy assumes a cloud LoadBalancer exists. The `baremetal` variant deploys NGINX as a NodePort service, which MetalLB then promotes to a LoadBalancer with a real IP.
+
+**Why these versions:**
+All versions are pinned explicitly to avoid unexpected breaking changes on re-deploy. Using `latest` or unpinned refs would make the build non-reproducible.
+
+---
+
+### Helm Chart Repositories
+
+| Chart | Repo Name | Repo URL | Used For |
+|---|---|---|---|
+| `prometheus-community/kube-prometheus-stack` | `prometheus-community` | `https://prometheus-community.github.io/helm-charts` | Prometheus + Grafana + AlertManager |
+| `jetstack/cert-manager` | `jetstack` | `https://charts.jetstack.io` | TLS certificate management |
+
+**Helm itself:**
+Installed via the official install script: `https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3`
+
+---
+
+### Terraform Providers
+
+| Provider | Registry | Version |
+|---|---|---|
+| `Telmate/proxmox` | [registry.terraform.io/providers/Telmate/proxmox](https://registry.terraform.io/providers/Telmate/proxmox) | `3.0.2-rc07` |
+| `cloudflare/cloudflare` | [registry.terraform.io/providers/cloudflare/cloudflare](https://registry.terraform.io/providers/cloudflare/cloudflare) | `>= 5.0` |
+
+**Why Telmate/proxmox `3.0.2-rc07`:**
+This is a release candidate but is the most stable version supporting the Proxmox API v8 features used (cloud-init, full_clone, guest agent IP reporting). The official v2.x releases do not support all required fields.
+
+**Why Cloudflare `>= 5.0`:**
+Provider v5 renamed resources (`cloudflare_tunnel` → `cloudflare_zero_trust_tunnel_cloudflared`, `cloudflare_record` → `cloudflare_dns_record`). Pinning to `>= 5.0` ensures we use the stable v5 API. The tunnel configuration resource was removed in v5 — ingress rules are now managed via the Cloudflare API directly using a `terraform_data` local-exec.
+
+---
+
+### External APIs
+
+| API | Endpoint | Used For | Auth |
+|---|---|---|---|
+| Cloudflare API | `https://api.cloudflare.com/client/v4/accounts/{id}/cfd_tunnel/{id}/token` | Fetch tunnel token in Ansible | Bearer token (`TF_VAR_cloudflare_api_token`) |
+| Cloudflare API | `https://api.cloudflare.com/client/v4/accounts/{id}/cfd_tunnel/{id}/configurations` | Configure tunnel ingress rules in Terraform | Bearer token (same) |
+| Let's Encrypt ACME | `https://acme-v02.api.letsencrypt.org/directory` | Issue TLS certificates via cert-manager | DNS-01 via Cloudflare API |
+| Kubernetes APT repo | `https://pkgs.k8s.io/core:/stable:/v1.30/deb/` | Install kubelet, kubeadm, kubectl | Signed GPG key |
+
+---
 
 ### Appendix
 - A. Full `.env` Template (sanitised)
