@@ -149,6 +149,11 @@ Once all files are present, the document will be populated in full following the
   - 3.2.5 Failure Log
 
 ### Part 4: Kubernetes Platform Services
+- 4.5 cert-manager
+  - 4.5.1 Selection Rationale (DNS-01 vs HTTP-01, why Cloudflare)
+  - 4.5.2 ClusterIssuer Configuration
+  - 4.5.3 Certificate Lifecycle
+  - 4.5.4 Failure Log
 - 4.1 NGINX Ingress Controller
   - 4.1.1 Selection Rationale
   - 4.1.2 Configuration Breakdown
