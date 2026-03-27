@@ -5,8 +5,14 @@ metadata:
   namespace: monitoring
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - grafana.lennardjohn.org
+      secretName: grafana-tls
   rules:
     - host: grafana.lennardjohn.org
       http:

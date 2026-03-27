@@ -122,6 +122,12 @@ def main():
             [
                 "ansible-playbook",
                 "-i", str(INVENTORY_PATH),
+                "/work/ansible/playbook/deploy-cert-manager.yml",
+                "-vv"
+            ],
+            [
+                "ansible-playbook",
+                "-i", str(INVENTORY_PATH),
                 "/work/ansible/playbook/deploy-monitoring.yml",
                 "-vv"
             ],

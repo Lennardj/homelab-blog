@@ -5,8 +5,14 @@ metadata:
   namespace: wordpress
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - blog.lennardjohn.org
+      secretName: wordpress-tls
   rules:
     - host: blog.lennardjohn.org
       http:

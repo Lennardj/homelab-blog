@@ -1,0 +1,94 @@
+---
+- name: Deploy cert-manager
+  hosts: k8s_control_plane
+  become: true
+  vars:
+    kubeconfig: "/home/{{ ansible_user }}/.kube/config"
+    cloudflare_api_token: "{{ lookup('env', 'TF_VAR_cloudflare_api_token') }}"
+
+  tasks:
+    - name: Add Jetstack Helm repo
+      command: helm repo add jetstack https://charts.jetstack.io
+      register: jetstack_repo
+      retries: 20
+      delay: 20
+      until: jetstack_repo.rc == 0
+
+    - name: Update Helm repos
+      command: helm repo update
+      register: helm_update
+      retries: 20
+      delay: 20
+      until: helm_update.rc == 0
+
+    - name: Install cert-manager
+      command: >
+        helm upgrade --install cert-manager jetstack/cert-manager
+        --namespace cert-manager
+        --create-namespace
+        --version v1.14.5
+        --set installCRDs=true
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cm_install
+      retries: 20
+      delay: 30
+      until: cm_install.rc == 0
+
+    - name: Wait for cert-manager pods to exist
+      command: kubectl get pods -n cert-manager
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cm_pods
+      retries: 20
+      delay: 15
+      until: "'cert-manager' in cm_pods.stdout"
+
+    - name: Wait for cert-manager to stabilise
+      shell: |
+        kubectl get pods -n cert-manager --no-headers | (grep Running || true) | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cm_ready
+      retries: 20
+      delay: 15
+      until: cm_ready.stdout|int >= 3
+
+    - name: Wait for cert-manager webhook
+      command: kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Create Cloudflare API token secret for cert-manager
+      shell: |
+        kubectl create secret generic cloudflare-api-token \
+          --namespace=cert-manager \
+          --from-literal=api-token="{{ cloudflare_api_token }}" \
+          --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Copy cert-manager manifests to control plane
+      copy:
+        src: /work/kubernetes/cert-manager/
+        dest: /tmp/cert-manager/
+
+    - name: Apply ClusterIssuer
+      command: kubectl apply -f /tmp/cert-manager/clusterissuer.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: issuer_apply
+      retries: 10
+      delay: 10
+      until: issuer_apply.rc == 0
+
+    - name: Wait for ClusterIssuer to be ready
+      shell: |
+        kubectl get clusterissuer letsencrypt-prod \
+          -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "NotReady"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: issuer_ready
+      retries: 20
+      delay: 15
+      until: issuer_ready.stdout == "Ready"
