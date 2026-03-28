@@ -17,6 +17,41 @@ It is intended as:
 
 ---
 
+### Incident #4 — cloud-init status: error on All Nodes
+
+**Date:** 2026-03-28
+**Symptom:** All three nodes failed at `Wait for cloud-init to finish (resilient)` after 20 retries. SSH was working (ok=2 on each node).
+
+```
+fatal: [k8s-master-01]: FAILED! => {"stdout": "status: error", "rc": 1}
+fatal: [k8s-worker-1]: FAILED! => {"stdout": "status: error", "rc": 1}
+fatal: [k8s-worker-2]: FAILED! => {"stdout": "status: error", "rc": 1}
+```
+
+**Key observation:** The delta was `0:00:00.296` — the command returned almost instantly, meaning cloud-init had already finished. This ruled out a timing issue — cloud-init wasn't still running, it had completed with an error state.
+
+**Root cause:** `ciupgrade: true` in Terraform tells Proxmox cloud-init to run `apt-get upgrade` on first boot. Ubuntu 24.04's `unattended-upgrades` service runs concurrently on first boot and holds the apt lock. cloud-init's upgrade attempt fails because it can't acquire the lock → cloud-init exits with `status: error`. The network configuration succeeded (proven by SSH working), but Ansible treated any non-zero rc as failure.
+
+**Why the retries all failed:** The original task used `cloud-init status --wait`, which blocks internally until cloud-init finishes, then exits with rc=1. Each of the 20 retries ran immediately (cloud-init already done), got rc=1, and failed. The retries were pointless.
+
+**Fix applied:**
+```yaml
+# Before: requires success (rc == 0)
+command: cloud-init status --wait
+until: cloud_init_status.rc == 0
+
+# After: just requires cloud-init to be finished (done OR error)
+command: cloud-init status
+until: "'running' not in cloud_init_status.stdout"
+failed_when: false
+```
+
+The apt lock handling is already managed by a dedicated Ansible task later in the playbook — cloud-init's upgrade failure is benign.
+
+**Interview talking point:** `cloud-init status --wait` blocks until completion then returns the final status code. Using it with `retries` is pointless since every retry will return immediately with the same result once cloud-init is done. The correct pattern is to use `cloud-init status` (non-blocking) and retry until the output no longer contains "running".
+
+---
+
 ### Incident #3 — Ingress EXTERNAL-IP Pending (MetalLB Pool vs DHCP IP Conflict)
 
 **Date:** 2026-03-27
