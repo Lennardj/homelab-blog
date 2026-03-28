@@ -10,7 +10,7 @@
         timeout: 120
       register: ssh_ready
       retries: 20
-      delay: 20
+      delay: 60
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
@@ -57,14 +57,23 @@
         sysctl --system
       args:
         executable: /bin/bash
+    - name: Stop unattended-upgrades to prevent apt lock conflicts
+      systemd:
+        name: unattended-upgrades
+        state: stopped
+      failed_when: false
+    - name: Fix any partial dpkg state left by unattended-upgrades
+      command: dpkg --configure -a
+      failed_when: false
+      changed_when: false
     - name: Wait for apt/dpkg lock to be released
       shell: |
         fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
         fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
         fuser /var/cache/apt/archives/lock >/dev/null 2>&1
       register: apt_lock
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: apt_lock.rc != 0
       failed_when: false
       changed_when: false
