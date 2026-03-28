@@ -14,11 +14,12 @@
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
-      command: cloud-init status --wait
+      command: cloud-init status
       register: cloud_init_status
       retries: 20
       delay: 20
-      until: cloud_init_status.rc == 0
+      until: "'running' not in cloud_init_status.stdout"
+      failed_when: false
       changed_when: false
   tasks:
     - name: Disable swap (runtime)
@@ -167,11 +168,12 @@
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
-      command: cloud-init status --wait
+      command: cloud-init status
       register: cloud_init_status
       retries: 20
       delay: 20
-      until: cloud_init_status.rc == 0
+      until: "'running' not in cloud_init_status.stdout"
+      failed_when: false
       changed_when: false
   tasks:
     - name: Check if Kubernetes API is responding
