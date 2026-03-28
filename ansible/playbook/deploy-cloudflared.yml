@@ -58,7 +58,7 @@
     - name: Wait for cloudflared rollout
       block:
         - name: Rollout status
-          command: kubectl rollout status deployment/cloudflared -n cloudflared --timeout=120s
+          command: kubectl rollout status deployment/cloudflared -n cloudflared --timeout=600s
           environment:
             KUBECONFIG: "{{ kubeconfig }}"
       rescue:
