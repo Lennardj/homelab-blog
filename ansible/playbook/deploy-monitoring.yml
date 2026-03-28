@@ -8,16 +8,6 @@
     KUBECONFIG: "{{ kubeconfig }}"
 
   tasks:
-    - name: Install Helm
-      shell: |
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-      args:
-        creates: /usr/local/bin/helm
-      register: helm_install
-      retries: 20
-      delay: 20
-      until: helm_install.rc == 0
-
     - name: Copy monitoring manifests
       copy:
         src: /work/kubernetes/monitoring/
