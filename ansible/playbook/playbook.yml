@@ -57,10 +57,15 @@
         sysctl --system
       args:
         executable: /bin/bash
-    - name: Stop unattended-upgrades to prevent apt lock conflicts
+    - name: Stop and disable unattended-upgrades service and timers
       systemd:
-        name: unattended-upgrades
+        name: "{{ item }}"
         state: stopped
+        enabled: false
+      loop:
+        - unattended-upgrades
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
       failed_when: false
     - name: Fix any partial dpkg state left by unattended-upgrades
       command: dpkg --configure -a
