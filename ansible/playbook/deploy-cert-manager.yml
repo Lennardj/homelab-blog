@@ -10,15 +10,15 @@
     - name: Add Jetstack Helm repo
       command: helm repo add jetstack https://charts.jetstack.io
       register: jetstack_repo
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: jetstack_repo.rc == 0
 
     - name: Update Helm repos
       command: helm repo update
       register: helm_update
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: helm_update.rc == 0
 
     - name: Install cert-manager
@@ -40,8 +40,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: cm_pods
-      retries: 20
-      delay: 15
+      retries: 30
+      delay: 30
       until: "'cert-manager' in cm_pods.stdout"
 
     - name: Wait for cert-manager to stabilise
@@ -50,8 +50,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: cm_ready
-      retries: 20
-      delay: 15
+      retries: 30
+      delay: 30
       until: cm_ready.stdout|int >= 3
 
     - name: Wait for cert-manager webhook
@@ -78,8 +78,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: issuer_apply
-      retries: 10
-      delay: 10
+      retries: 30
+      delay: 30
       until: issuer_apply.rc == 0
 
     - name: Wait for ClusterIssuer to be ready
@@ -89,6 +89,6 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: issuer_ready
-      retries: 20
-      delay: 15
+      retries: 30
+      delay: 30
       until: issuer_ready.stdout == "Ready"

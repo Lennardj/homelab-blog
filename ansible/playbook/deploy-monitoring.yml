@@ -21,15 +21,15 @@
     - name: Add Prometheus Helm repo
       command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
       register: helm_repo_add
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: helm_repo_add.rc == 0
 
     - name: Update Helm repos
       command: helm repo update
       register: helm_repo_update
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: helm_repo_update.rc == 0
 
     - name: Install kube-prometheus-stack

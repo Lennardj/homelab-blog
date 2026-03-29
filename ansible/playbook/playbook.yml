@@ -16,8 +16,8 @@
     - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status
       register: cloud_init_status
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: "'running' not in cloud_init_status.stdout"
       failed_when: false
       changed_when: false
@@ -119,8 +119,8 @@
         path: /run/containerd/containerd.sock
         timeout: 30
       register: containerd_socket
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: containerd_socket is succeeded
     - name: Add Kubernetes apt repo (pkgs.k8s.io)
       shell: |
@@ -171,21 +171,21 @@
   hosts: k8s_control_plane
   become: true
   vars:
-    pod_cidr: "10.96.0.0/16" 
+    pod_cidr: "10.96.0.0/16"
   pre_tasks:
     - name: Wait for SSH to become available (resilient)
       wait_for_connection:
         timeout: 120
       register: ssh_ready
       retries: 20
-      delay: 20
+      delay: 60
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
       command: cloud-init status
       register: cloud_init_status
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: "'running' not in cloud_init_status.stdout"
       failed_when: false
       changed_when: false
@@ -215,7 +215,7 @@
       args:
         creates: /etc/kubernetes/admin.conf
       register: kubeadm_init
-      retries: 20
+      retries: 30
       delay: 30
       until: kubeadm_init.rc == 0
       when: cluster_check.rc != 0
@@ -273,7 +273,7 @@
         timeout: 120
       register: ssh_ready
       retries: 20
-      delay: 20
+      delay: 60
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
@@ -290,6 +290,6 @@
       args:
         creates: /etc/kubernetes/kubelet.conf
       register: join_result
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: join_result.rc == 0

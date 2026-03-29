@@ -89,8 +89,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: mariadb_ready
-      retries: 20
-      delay: 10
+      retries: 30
+      delay: 30
       until: mariadb_ready.rc == 0
       failed_when: false
 

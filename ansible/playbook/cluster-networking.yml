@@ -41,8 +41,8 @@
     environment:
       KUBECONFIG: "{{ kubeconfig }}"
     register: metallb_config
-    retries: 20
-    delay: 20
+    retries: 30
+    delay: 30
     until: metallb_config.rc == 0
 
   - name: Convert ingress controller to LoadBalancer with static IP
@@ -53,6 +53,6 @@
     environment:
       KUBECONFIG: "{{ kubeconfig }}"
     register: ingress_patch
-    retries: 20
-    delay: 20
+    retries: 30
+    delay: 30
     until: ingress_patch.rc == 0
