@@ -32,8 +32,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: ingress_pods
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: "'ingress-nginx-controller' in ingress_pods.stdout"
 
     - name: Wait for ingress controller to stabilise
@@ -42,8 +42,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: ingress_ready
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: ingress_ready.stdout|int >= 1
 
     - name: Install Local Path Provisioner
@@ -58,8 +58,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: storage_pods
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: "'local-path-provisioner' in storage_pods.stdout"
 
     - name: Wait for Local Path Provisioner to stabilise
@@ -68,8 +68,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: storage_ready
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: storage_ready.stdout|int >= 1
 
     - name: Install Metrics Server
@@ -100,8 +100,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: metrics_pods
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: "'metrics-server' in metrics_pods.stdout"
 
     - name: Wait for metrics-server to stabilise
@@ -110,8 +110,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: metrics_ready
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: metrics_ready.stdout|int >= 1
 
     # - name: Wait for PVCs

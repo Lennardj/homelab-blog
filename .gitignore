@@ -2,9 +2,9 @@
 draft_README.md
 ./test_folder
 KNOWLEDGE_BASE.md
-./Technical_book/*
 command_output
 command_output.txt
 CLAUDE.md
-
+Technical_book/chat*.md
+Technical_book/Task*.md
 

@@ -55,7 +55,7 @@
       until: cm_ready.stdout|int >= 3
 
     - name: Wait for cert-manager webhook
-      command: kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
+      command: kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=600s
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 

@@ -17,8 +17,8 @@
     environment:
       KUBECONFIG: "{{ kubeconfig }}"
     register: metallb_pods
-    retries: 20
-    delay: 20
+    retries: 30
+    delay: 30
     until: "'controller' in metallb_pods.stdout"
 
   - name: Wait for MetalLB controller to stabilise
@@ -27,8 +27,8 @@
     environment:
       KUBECONFIG: "{{ kubeconfig }}"
     register: metallb_ready
-    retries: 20
-    delay: 20
+    retries: 30
+    delay: 30
     until: metallb_ready.stdout|int >= 1
 
   - name: Copy MetalLB config

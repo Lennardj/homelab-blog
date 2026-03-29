@@ -49,8 +49,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: monitoring_pods
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: "'prometheus' in monitoring_pods.stdout"
 
     - name: Wait for monitoring stack to stabilise
@@ -59,8 +59,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: monitoring_ready
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: monitoring_ready.stdout|int >= 3
 
     - name: Deploy Grafana ingress
@@ -68,6 +68,6 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: grafana_ingress
-      retries: 20
-      delay: 20
+      retries: 30
+      delay: 30
       until: grafana_ingress.rc == 0

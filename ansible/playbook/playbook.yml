@@ -277,11 +277,12 @@
       until: ssh_ready is succeeded
 
     - name: Wait for cloud-init to finish (resilient)
-      command: cloud-init status --wait
+      command: cloud-init status
       register: cloud_init_status
-      retries: 20
+      retries: 30
       delay: 30
-      until: cloud_init_status.rc == 0
+      until: "'running' not in cloud_init_status.stdout"
+      failed_when: false
       changed_when: false
   tasks:
     - name: Join the cluster (resilient)
