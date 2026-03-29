@@ -85,7 +85,7 @@
     - name: Wait for MariaDB to accept connections
       shell: |
         kubectl exec -n wordpress deployment/mariadb -- \
-          mariadb -uroot -p"{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}" -e "SELECT 1"
+          mariadb -uroot -e "SELECT 1"
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: mariadb_ready
@@ -97,7 +97,7 @@
     - name: Ensure wordpress user has grants from any host
       shell: |
         kubectl exec -n wordpress deployment/mariadb -- \
-          mariadb -uroot -p"{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}" \
+          mariadb -uroot \
           -e "GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress'@'%' IDENTIFIED BY '{{ lookup('env', 'MARIADB_PASSWORD') }}'; FLUSH PRIVILEGES;"
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
