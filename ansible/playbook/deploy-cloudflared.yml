@@ -50,8 +50,8 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
-    - name: Apply cloudflared deployment
-      command: kubectl apply -f /opt/k8s/cloudflared/deployment.yaml
+    - name: Apply cloudflared manifests
+      command: kubectl apply -k /opt/k8s/cloudflared/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 

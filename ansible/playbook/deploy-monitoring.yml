@@ -13,8 +13,8 @@
         src: /work/kubernetes/monitoring/
         dest: /tmp/monitoring/
 
-    - name: Create monitoring namespace
-      command: kubectl apply -f /tmp/monitoring/namespace.yaml
+    - name: Apply monitoring manifests
+      command: kubectl apply -k /tmp/monitoring/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
@@ -63,14 +63,6 @@
       delay: 30
       until: monitoring_ready.stdout|int >= 3
 
-    - name: Deploy Grafana ingress
-      command: kubectl apply -f /tmp/monitoring/grafana-ingress.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: grafana_ingress
-      retries: 30
-      delay: 30
-      until: grafana_ingress.rc == 0
 
     - name: Register monitoring Application with Argo CD
       command: kubectl apply -f /opt/k8s/argocd/apps/monitoring.yaml
