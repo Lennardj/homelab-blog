@@ -1,0 +1,11 @@
+server:
+  # Disable internal TLS — NGINX ingress handles TLS termination
+  extraArgs:
+    - --insecure
+
+  ingress:
+    enabled: false  # We manage ingress separately
+
+configs:
+  params:
+    server.insecure: true
