@@ -5,6 +5,8 @@ metadata:
   namespace: wordpress
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: wordpress
@@ -50,11 +52,9 @@ spec:
             periodSeconds: 20
             failureThreshold: 3
           readinessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: 80
             initialDelaySeconds: 30
-            timeoutSeconds: 5
             periodSeconds: 10
             failureThreshold: 3
           volumeMounts:
