@@ -147,6 +147,29 @@ Ingress IP:         192.168.1.80 (first IP in MetalLB pool)
 Gateway:            192.168.1.254
 ```
 
+### Remote Access via Tailscale
+
+Tailscale subnet routing allows running the full `docker compose up` pipeline from outside the home network.
+
+**Setup (one-time, on Proxmox host):**
+```bash
+tailscale up --advertise-routes=192.168.1.0/24 --accept-routes
+```
+Then approve the route in the Tailscale admin console: Machines → Proxmox → Edit route settings → enable `192.168.1.0/24`.
+
+**On the remote machine running compose:**
+```bash
+tailscale up --accept-routes
+```
+
+**What changes in `.env` for a remote run:**
+```bash
+TF_VAR_proxmox_api_url=https://<tailscale-ip>:8006/api2/json
+# All other values stay the same
+```
+
+VM IPs (`192.168.1.70–.72`) and `INGRESS_IP` do not change — they are LAN addresses assigned to the VMs themselves, reachable via the subnet route.
+
 ### DNS (Cloudflare-managed)
 
 ```
@@ -198,8 +221,9 @@ Browser → Cloudflare DNS → Cloudflare Edge
 - Image: `wordpress:php8.2-apache`
 - Resources: 100m/500m CPU, 128Mi/512Mi memory
 - PVC: 8Gi (local-path)
-- Liveness: TCP port 80 (60s delay) — TCP avoids DB-dependent HTTP checks killing the pod on fresh deploy
-- Readiness: HTTP GET / port 80 (30s delay, 5s timeout) — follows 302 to install page on fresh deploy
+- Deployment strategy: `Recreate` — required because `wordpress-pvc` is ReadWriteOnce; rolling update would deadlock (new pod can't mount PVC held by old pod on different node)
+- Liveness: TCP port 80 (60s delay)
+- Readiness: TCP port 80 (30s delay) — TCP not HTTP; WordPress returns 500 on fresh install before setup wizard, so httpGet would permanently block the pod from becoming Ready
 - DB host: `mariadb:3306`
 - Ingress: `blog.lennardjohn.org`
 
@@ -235,11 +259,22 @@ Browser → Cloudflare DNS → Cloudflare Edge
 ### How it works
 cert-manager watches for Ingress resources with the `cert-manager.io/cluster-issuer` annotation. When found, it automatically requests a certificate from Let's Encrypt using DNS-01 challenge via the Cloudflare API, stores the cert as a K8s secret, and NGINX ingress serves it.
 
-### ClusterIssuer
-- Issuer: `letsencrypt-prod` (Let's Encrypt production)
-- Challenge: DNS-01 via Cloudflare API
-- Email: `lennardvincentjohn@gmail.com` (expiry notifications)
-- Cloudflare API token stored as secret `cloudflare-api-token` in `cert-manager` namespace
+### ClusterIssuers
+Two issuers are deployed:
+- `letsencrypt-prod` — production CA, trusted by browsers, **5 duplicate certs per domain per 7 days** rate limit
+- `letsencrypt-staging` — staging CA, untrusted by browsers, unlimited — **use this for test runs**
+
+Challenge: DNS-01 via Cloudflare API (both issuers)
+Email: `lennardvincentjohn@gmail.com`
+Cloudflare API token stored as secret `cloudflare-api-token` in `cert-manager` namespace
+
+**Before recording the video**, switch ingresses from staging to prod:
+```bash
+sed -i 's/letsencrypt-staging/letsencrypt-prod/g' \
+  kubernetes/wordpress/ingress.yaml \
+  kubernetes/monitoring/grafana-ingress.yaml \
+  kubernetes/argocd/ingress.yaml
+```
 
 ### Certificates
 | Domain | Secret | Namespace |
@@ -483,6 +518,18 @@ All apps: `automated` with `prune: true` and `selfHeal: true`
 ---
 
 ## 14. Deployment Checklist
+
+### Before Recording the Video (one-time swap)
+```bash
+sed -i 's/letsencrypt-staging/letsencrypt-prod/g' \
+  kubernetes/wordpress/ingress.yaml \
+  kubernetes/monitoring/grafana-ingress.yaml \
+  kubernetes/argocd/ingress.yaml
+git add -p && git commit -m "Switch to prod TLS for video" && git push
+```
+Wait ~60s after deploy for trusted certs to issue, then record.
+
+### Pre-flight
 
 - [ ] Proxmox API accessible at `192.168.1.174:8006`
 - [ ] Cloud-init template `ubuntu-cloud` exists in Proxmox

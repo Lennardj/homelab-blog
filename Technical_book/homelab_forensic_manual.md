@@ -6,6 +6,393 @@
 
 ---
 
+## How Everything Connects: The Full Dependency Map
+
+This section is a complete map of every tool, config file, credential, and Kubernetes resource — showing exactly how they chain together. The goal is to be able to explain the full pipeline from memory in an interview.
+
+---
+
+### 1. Tool → Tool Dependencies
+
+```
+.env (source of all credentials and config)
+  │
+  ├─► docker-compose.yaml (env_file: .env)
+  │     │
+  │     ├─► [terraform container]
+  │     │     docker/terraform/Dockerfile (FROM hashicorp/terraform:1.14)
+  │     │     docker/terraform/run.sh
+  │     │       → terraform init
+  │     │       → terraform apply -auto-approve
+  │     │           → Proxmox API: creates 3 VMs
+  │     │           → Cloudflare API: creates tunnel + DNS records + ingress rules
+  │     │       → polls SSH on each VM IP
+  │     │       → terraform output -json > /artifacts/output.json
+  │     │
+  │     └─► [ansible container] (depends_on: terraform)
+  │           docker/ansible/Dockerfile (FROM python:3.12.0-slim + ansible==13.5.0)
+  │           scripts/build_inventory.py
+  │             → reads /artifacts/output.json
+  │             → writes ansible/inventory/hosts.ini
+  │             → copies SSH key: /keys/id_ed25519 → /root/.ssh/id_ed25519
+  │             → runs 8 playbooks in sequence:
+  │                 1. ansible/playbook/playbook.yml
+  │                 2. ansible/playbook/cluster-services.yml
+  │                 3. ansible/playbook/cluster-networking.yml
+  │                 4. ansible/playbook/deploy-cert-manager.yml
+  │                 5. ansible/playbook/deploy-argocd.yml
+  │                 6. ansible/playbook/deploy-monitoring.yml
+  │                 7. ansible/playbook/deploy-wordpress.yml
+  │                 8. ansible/playbook/deploy-cloudflared.yml
+  │
+  └─► Argo CD (running in cluster, continuous)
+        watches: https://github.com/Lennardj/homelab-blog (main branch)
+        polls: kubernetes/wordpress/, kubernetes/monitoring/, kubernetes/cloudflared/
+        on diff: kubectl apply -k <path>
+```
+
+---
+
+### 2. File → File Dependencies
+
+Every file that reads from or writes to another file:
+
+| File (writer) | Produces | File (reader) | How it reads |
+|---|---|---|---|
+| `docker/terraform/run.sh` | `/artifacts/output.json` | `scripts/build_inventory.py` | `json.loads(path.read_text())` line 21 |
+| `scripts/build_inventory.py` | `ansible/inventory/hosts.ini` | all `ansible-playbook` commands | `-i /work/ansible/inventory/hosts.ini` |
+| `terraform/proxmox/outputs.tf` | `output.cloudflare_tunnel_id` | `deploy-cloudflared.yml` | `terraform_output.cloudflare_tunnel_id.value` |
+| `terraform/proxmox/outputs.tf` | `output.cloudflare_account_id` | `deploy-cloudflared.yml` | `terraform_output.cloudflare_account_id.value` |
+| `terraform/proxmox/outputs.tf` | `output.all_nodes_ips` | `build_inventory.py` | `data["all_nodes_ips"]["value"]` line 39 |
+| `terraform/proxmox/outputs.tf` | `output.all_nodes_hostnames` | `build_inventory.py` | `data["all_nodes_hostnames"]["value"]` line 38 |
+| `terraform/proxmox/outputs.tf` | `output.control_plane_ip` | `build_inventory.py` | `data["control_plane_ip"]["value"]` line 60 |
+| `terraform/proxmox/outputs.tf` | `output.worker_ips` | `build_inventory.py` | `data["worker_ips"]["value"]` line 61 |
+| `kubernetes/*/kustomization.yaml` | resource list | `kubectl apply -k` | Ansible + Argo CD both use `-k` |
+| `kubernetes/argocd/apps/*.yaml` | `repoURL`, `path` | Argo CD Application controller | Argo CD reads CRs from the cluster |
+| `kubernetes/monitoring/values.yaml` | Helm values | `deploy-monitoring.yml` | `--values /tmp/monitoring/values.yaml` line 40 |
+| `kubernetes/argocd/values.yaml` | Helm values | `deploy-argocd.yml` | `--values /opt/k8s/argocd/values.yaml` line 44 |
+| `kubernetes/metallb/metallb-config.yaml` | IP pool config | `cluster-networking.yml` | `kubectl apply -f /tmp/metallb-config.yaml` |
+| `kubernetes/cert-manager/clusterissuer.yaml` | ClusterIssuer spec | `deploy-cert-manager.yml` | `kubectl apply -f /tmp/cert-manager/clusterissuer.yaml` |
+| `/artifacts/output.json` | tunnel_id, account_id | `deploy-cloudflared.yml` | `lookup('file', '/artifacts/output.json') \| from_json` |
+
+---
+
+### 3. Credential Flow
+
+Every secret — where it starts, what it becomes, where it ends up.
+
+#### a) TF_VAR_cloudflare_api_token
+
+```
+.env: TF_VAR_cloudflare_api_token
+  │
+  ├─► terraform/proxmox/variables.tf: var.cloudflare_api_token
+  │     → terraform/proxmox/provider.tf:
+  │         provider "cloudflare" { api_token = var.cloudflare_api_token }
+  │     → terraform/proxmox/cloudflare.tf:
+  │         terraform_data.tunnel_config (local-exec curl)
+  │         -H "Authorization: Bearer ${self.input.api_token}"
+  │
+  ├─► ansible/playbook/deploy-cert-manager.yml line 7:
+  │     cloudflare_api_token: "{{ lookup('env', 'TF_VAR_cloudflare_api_token') }}"
+  │     → kubectl create secret generic cloudflare-api-token
+  │         namespace: cert-manager, key: api-token
+  │     → kubernetes/cert-manager/clusterissuer.yaml:
+  │         apiTokenSecretRef.name: cloudflare-api-token
+  │         (cert-manager uses this for Let's Encrypt DNS-01 validation)
+  │
+  └─► ansible/playbook/deploy-cloudflared.yml line 11:
+        cloudflare_api_token: "{{ lookup('env', 'TF_VAR_cloudflare_api_token') }}"
+        → GET /accounts/{id}/cfd_tunnel/{id}/token
+          Authorization: Bearer {cloudflare_api_token}
+          → tunnel_token fact (see chain b below)
+```
+
+#### b) Cloudflare Tunnel Token
+
+```
+terraform/proxmox/cloudflare.tf:
+  cloudflare_zero_trust_tunnel_cloudflared.homelab → tunnel created
+  │
+  ▼
+terraform/proxmox/outputs.tf:
+  output "cloudflare_tunnel_id" = cloudflare_zero_trust_tunnel_cloudflared.homelab.id
+  output "cloudflare_account_id" = var.cloudflare_account_id
+  │
+  ▼
+/artifacts/output.json:
+  { "cloudflare_tunnel_id": { "value": "<uuid>" },
+    "cloudflare_account_id": { "value": "<id>" } }
+  │
+  ▼
+ansible/playbook/deploy-cloudflared.yml:
+  vars:
+    terraform_output: "{{ lookup('file', '/artifacts/output.json') | from_json }}"
+    tunnel_id: "{{ terraform_output.cloudflare_tunnel_id.value }}"
+    account_id: "{{ terraform_output.cloudflare_account_id.value }}"
+  → Cloudflare API: GET /accounts/{account_id}/cfd_tunnel/{tunnel_id}/token
+  → tunnel_token_response.json.result → set_fact: tunnel_token
+  │
+  ▼
+kubectl create secret generic cloudflared-token
+  namespace: cloudflared, key: token
+  │
+  ▼
+kubernetes/cloudflared/deployment.yaml:
+  env:
+    - name: TUNNEL_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: cloudflared-token
+          key: token
+  args: [tunnel, --no-autoupdate, --metrics 0.0.0.0:2000, run, --token, $(TUNNEL_TOKEN)]
+```
+
+#### c) MariaDB Credentials
+
+```
+.env: MARIADB_ROOT_PASSWORD, MARIADB_PASSWORD
+  │
+  ▼
+ansible/playbook/deploy-wordpress.yml lines 62-65:
+  kubectl create secret generic wordpress-secrets
+    --from-literal=mariadb-root-password="{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}"
+    --from-literal=mariadb-password="{{ lookup('env', 'MARIADB_PASSWORD') }}"
+    --from-literal=mariadb-database=wordpress
+    --from-literal=mariadb-user=wordpress
+  │
+  ├─► kubernetes/wordpress/mariadb.yaml:
+  │     env:
+  │       MARIADB_ROOT_PASSWORD → secretKeyRef: wordpress-secrets/mariadb-root-password
+  │       MARIADB_USER          → secretKeyRef: wordpress-secrets/mariadb-user
+  │       MARIADB_PASSWORD      → secretKeyRef: wordpress-secrets/mariadb-password
+  │       MARIADB_DATABASE      → secretKeyRef: wordpress-secrets/mariadb-database
+  │
+  └─► kubernetes/wordpress/wordpress.yaml:
+        env:
+          WORDPRESS_DB_HOST     → mariadb:3306 (hardcoded service name)
+          WORDPRESS_DB_USER     → secretKeyRef: wordpress-secrets/mariadb-user
+          WORDPRESS_DB_PASSWORD → secretKeyRef: wordpress-secrets/mariadb-password
+          WORDPRESS_DB_NAME     → secretKeyRef: wordpress-secrets/mariadb-database
+```
+
+#### d) Grafana Admin Password
+
+```
+.env: GRAFANA_ADMIN_PASSWORD
+  │
+  ▼
+ansible/playbook/deploy-monitoring.yml line 41:
+  helm upgrade --install kube-prometheus-stack ...
+    --set grafana.adminPassword={{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}
+  → Stored internally by Helm chart as a K8s secret (grafana-admin)
+  → Grafana pod reads it at startup
+  (Never written to a custom K8s secret — Helm manages it)
+```
+
+#### e) Ingress IP
+
+```
+.env: INGRESS_IP=192.168.1.80
+  │
+  ▼
+ansible/playbook/cluster-networking.yml line 52:
+  kubectl patch svc ingress-nginx-controller -n ingress-nginx
+    -p '{"spec":{"type":"LoadBalancer","loadBalancerIP":"{{ lookup('env','INGRESS_IP') }}"}}'
+  │
+  ▼
+MetalLB allocates 192.168.1.80 from pool defined in:
+  kubernetes/metallb/metallb-config.yaml:
+    IPAddressPool: 192.168.1.80-192.168.1.90
+  │
+  ▼
+All ingress resources route through 192.168.1.80:
+  kubernetes/wordpress/ingress.yaml → blog.lennardjohn.org
+  kubernetes/monitoring/grafana-ingress.yaml → grafana.lennardjohn.org
+  kubernetes/argocd/ingress.yaml → argocd.lennardjohn.org
+```
+
+#### f) SSH Key
+
+```
+.env: SSH_KEY_DIR=C:/Users/User/.ssh
+  │
+  ▼
+docker-compose.yaml line 29:
+  volumes: - ${SSH_KEY_DIR}:/keys:ro
+  (SSH directory mounted read-only into ansible container)
+  │
+  ▼
+scripts/build_inventory.py line 51-52 (prepare_key()):
+  cp /keys/id_ed25519 /root/.ssh/id_ed25519
+  chmod 600 /root/.ssh/id_ed25519
+  │
+  ▼
+ansible/inventory/hosts.ini:
+  [all:vars]
+  ansible_ssh_private_key_file=/root/.ssh/id_ed25519
+  ansible_ssh_common_args=-o StrictHostKeyChecking=no
+  │
+  ▼
+All playbooks SSH into VMs using this key.
+Key must match the public key hardcoded in terraform/proxmox/main.tf:
+  sshkeys = "ssh-ed25519 AAAAC3Nz... ljohn@Lennard-John-PC"
+```
+
+---
+
+### 4. Full End-to-End Chain: docker compose up → https://blog.lennardjohn.org
+
+```
+Step 1: docker compose up
+  Sources: .env
+  Starts: terraform container (docker/terraform/Dockerfile)
+
+Step 2: docker/terraform/run.sh
+  cd /work/terraform/proxmox
+  terraform init
+    Reads: terraform/proxmox/provider.tf (proxmox + cloudflare providers)
+    Reads: terraform/proxmox/variables.tf (all variable definitions)
+  terraform apply -auto-approve
+    Reads: terraform/proxmox/main.tf
+      Creates: k8s-master-01 (vmid 150, 192.168.1.70, 4GB RAM, 70GB)
+      Creates: k8s-worker-1 (vmid 200, 192.168.1.71, 2GB RAM, 70GB)
+      Creates: k8s-worker-2 (vmid 201, 192.168.1.72, 2GB RAM, 70GB)
+    Reads: terraform/proxmox/cloudflare.tf
+      Creates: Cloudflare tunnel "homelab-k8s"
+      Creates: DNS CNAME → blog.lennardjohn.org
+      Creates: DNS CNAME → grafana.lennardjohn.org
+      Creates: DNS CNAME → argocd.lennardjohn.org
+      Configures: tunnel ingress rules via Cloudflare API
+    Reads: terraform/proxmox/outputs.tf
+  Polls SSH on 192.168.1.70, .71, .72
+  Writes: /artifacts/output.json
+
+Step 3: ansible container starts
+  Runs: scripts/build_inventory.py
+    Reads: /artifacts/output.json
+    Writes: ansible/inventory/hosts.ini
+    Copies: SSH key to /root/.ssh/id_ed25519
+
+Step 4: playbook.yml (all 3 nodes)
+  Installs: containerd, kubelet, kubeadm, kubectl
+  Control plane: kubeadm init, installs Calico CNI
+  Workers: kubeadm join
+
+Step 5: cluster-services.yml (control plane)
+  Installs: Helm, NGINX ingress controller, local-path-provisioner, metrics-server
+
+Step 6: cluster-networking.yml (control plane)
+  Reads: kubernetes/metallb/metallb-config.yaml
+  Installs: MetalLB, configures IP pool 192.168.1.80-90
+  Patches: ingress-nginx-controller → LoadBalancer IP 192.168.1.80
+
+Step 7: deploy-cert-manager.yml (control plane)
+  Installs: cert-manager v1.14.5 via Helm
+  Creates: K8s Secret cloudflare-api-token (cert-manager ns)
+  Reads: kubernetes/cert-manager/clusterissuer.yaml
+  Applies: ClusterIssuer letsencrypt-prod
+
+Step 8: deploy-argocd.yml (control plane)
+  Reads: kubernetes/argocd/values.yaml
+  Installs: Argo CD via Helm
+  Reads: kubernetes/argocd/ingress.yaml
+  Applies: Ingress for argocd.lennardjohn.org
+  cert-manager issues argocd-tls certificate (DNS-01 via Cloudflare)
+
+Step 9: deploy-monitoring.yml (control plane)
+  Reads: kubernetes/monitoring/values.yaml
+  Installs: kube-prometheus-stack via Helm (Prometheus, Grafana, AlertManager)
+  Reads: kubernetes/monitoring/kustomization.yaml
+  Applies: namespace + grafana-ingress.yaml
+  cert-manager issues grafana-tls certificate
+  Registers: Argo CD Application "monitoring"
+
+Step 10: deploy-wordpress.yml (control plane)
+  Creates: K8s Secret wordpress-secrets (wordpress ns)
+  Reads: kubernetes/wordpress/kustomization.yaml
+  Applies: namespace, PVCs, mariadb deployment, wordpress deployment, ingress
+  Waits: MariaDB SELECT 1 succeeds
+  Runs: GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress'@'%'
+  cert-manager issues wordpress-tls certificate
+  Registers: Argo CD Application "wordpress"
+
+Step 11: deploy-cloudflared.yml (control plane)
+  Reads: /artifacts/output.json → tunnel_id, account_id
+  Calls: Cloudflare API → fetches tunnel token
+  Creates: K8s Secret cloudflared-token (cloudflared ns)
+  Reads: kubernetes/cloudflared/kustomization.yaml
+  Applies: namespace + cloudflared deployment (2 replicas)
+  cloudflared pods connect to Cloudflare edge (4 connections registered)
+  Registers: Argo CD Application "cloudflared"
+
+Step 12: Request hits https://blog.lennardjohn.org
+  Browser → Cloudflare DNS (CNAME: blog → <tunnel-id>.cfargotunnel.com)
+  → Cloudflare edge → Cloudflare tunnel
+  → cloudflared pod (cloudflared namespace, port 2000 metrics)
+  → http://ingress-nginx-controller.ingress-nginx.svc.cluster.local
+  → NGINX Ingress (192.168.1.80:443)
+  → routes on Host: blog.lennardjohn.org
+  → Service: wordpress:80 (wordpress namespace)
+  → WordPress pod (wordpress:php8.2-apache)
+  → reads wordpress-secrets for DB credentials
+  → connects to mariadb:3306 (ClusterIP service)
+  → MariaDB pod reads wordpress-secrets
+  → returns page
+```
+
+---
+
+### 5. GitOps Chain: git push → live update (Argo CD)
+
+```
+Developer edits kubernetes/wordpress/wordpress.yaml (e.g. changes image tag)
+  │
+  ▼
+git push origin main
+  │
+  ▼
+Argo CD Application controller (polls every 3 minutes, or webhook-triggered):
+  Reads: kubernetes/argocd/apps/wordpress.yaml
+    repoURL: https://github.com/Lennardj/homelab-blog
+    targetRevision: main
+    path: kubernetes/wordpress
+  Compares: live cluster state vs repo state
+  Detects: diff in wordpress.yaml
+  │
+  ▼
+Argo CD runs: kubectl apply -k kubernetes/wordpress/
+  Reads: kubernetes/wordpress/kustomization.yaml
+  Applies: namespace.yaml, pvc.yaml, mariadb.yaml, wordpress.yaml, ingress.yaml
+  (secrets.yaml excluded — not in kustomization.yaml, created by Ansible)
+  │
+  ▼
+Kubernetes rolling update:
+  New WordPress pod created with updated image
+  Old pod terminated after health checks pass
+  Zero downtime if resources allow
+  │
+  ▼
+Argo CD UI (argocd.lennardjohn.org):
+  Application "wordpress": Synced ✅ Healthy ✅
+```
+
+---
+
+### 6. Why Secrets Stay Outside Git
+
+| Secret | Why it can't be in Git | Where it lives |
+|--------|----------------------|----------------|
+| `wordpress-secrets` | Contains real DB passwords | K8s Secret, created by Ansible from `.env` |
+| `cloudflared-token` | Tunnel token rotates; fetched live from Cloudflare API | K8s Secret, created by Ansible |
+| `cloudflare-api-token` | Cloudflare API key — full DNS + tunnel access | K8s Secret in cert-manager ns |
+| Grafana password | Admin credential | Helm-managed K8s Secret (not custom) |
+| `wordpress-tls`, `grafana-tls`, `argocd-tls` | TLS private keys | Auto-created by cert-manager, never in Git |
+
+Argo CD only manages K8s resources that are safe to commit. Secrets are seeded by Ansible before Argo CD first syncs — that's why Application CRs are registered at the end of each Ansible playbook, not at Argo CD install time.
+
+---
+
 ## How This Document Was Built
 
 This manual is reconstructed from real project chat history across multiple LLM sessions. Every command, error, config value, and architectural decision mentioned in those transcripts is captured here — including mistakes, wrong turns, and the reasoning behind each fix.
@@ -14,6 +401,159 @@ It is intended as:
 - A **forensic record** of the project from scratch to production
 - An **interview study guide** — every section answers "why did you do it that way?"
 - A **runbook** for repeating or extending the deployment
+
+---
+
+### Incident #16 — Remote Access via Tailscale: Subnet Routing for Full Pipeline
+
+**Date:** 2026-03-30
+**Context:** Running `docker compose up` from a remote machine (not on the home LAN) via Tailscale. Terraform can reach Proxmox via the Tailscale IP, but Ansible times out trying to SSH to the VMs.
+
+**Root cause:** Tailscale by default only gives access to devices enrolled in the tailnet. The Kubernetes VMs (`192.168.1.70–.72`) are not enrolled in Tailscale — they are plain LAN devices. Without subnet routing, a remote machine cannot reach `192.168.1.x` addresses through Tailscale.
+
+**Fix: Enable Tailscale subnet routing on the Proxmox host**
+
+Step 1 — On the Proxmox host (SSH in via Tailscale IP):
+```bash
+tailscale up --advertise-routes=192.168.1.0/24 --accept-routes
+```
+
+Step 2 — In the Tailscale admin console (`login.tailscale.com`):
+- Machines → find Proxmox host → three dots → Edit route settings
+- Enable `192.168.1.0/24`
+
+Step 3 — On the remote Windows machine running docker compose:
+```bash
+tailscale up --accept-routes
+```
+
+**What changes in .env for a remote run:**
+```bash
+# Change this to your Proxmox host's Tailscale IP:
+TF_VAR_proxmox_api_url=https://<tailscale-ip>:8006/api2/json
+
+# Everything else stays the same — VM IPs (192.168.1.70-.72), INGRESS_IP,
+# SSH_KEY_DIR are all local to the machine running compose.
+```
+
+**Why only the Proxmox URL changes:** Terraform provisions VMs with static IPs on the local LAN (`192.168.1.70–.72`). These IPs belong to the VMs themselves — they don't change based on where compose runs. With subnet routing enabled, the remote machine routes `192.168.1.0/24` through the Proxmox host via Tailscale, making all VM IPs reachable exactly as if you were on the home network.
+
+**Interview talking point:** Tailscale subnet routing turns a Tailscale node into a relay for an entire LAN subnet — without installing Tailscale on every device. The Proxmox host acts as an exit node for the `192.168.1.0/24` subnet. This is the same pattern used in enterprise VPN split-tunnelling, but implemented at zero cost with WireGuard-based mesh networking.
+
+---
+
+### Incident #15 — Let's Encrypt Rate Limit: 5 Certs Per Exact Domain Set Per Week
+
+**Date:** 2026-03-29
+**Symptom:** cert-manager CertificateRequest stuck in `errored` state:
+```
+Failed to create Order: 429 urn:ietf:params:acme:error:rateLimited:
+too many certificates (5) already issued for this exact set of identifiers
+in the last 168h0m0s, retry after 2026-03-29 20:19:51 UTC
+```
+
+**Root cause:** Let's Encrypt enforces a limit of 5 duplicate certificates (same exact hostnames) per 7 days. Multiple `docker compose up` test runs each triggered a fresh cert request for `blog.lennardjohn.org`, exhausting the quota.
+
+**Fix (short term):** Wait for the 168h window to expire. Then force cert-manager to retry:
+```bash
+kubectl delete certificate wordpress-tls -n wordpress
+# cert-manager recreates it immediately and issues successfully
+```
+
+**Fix (long term):** Add a staging ClusterIssuer. Use `letsencrypt-staging` in all ingress annotations during test runs. Switch to `letsencrypt-prod` only for the final video run:
+```bash
+# Switch to prod before recording:
+sed -i 's/letsencrypt-staging/letsencrypt-prod/g' \
+  kubernetes/wordpress/ingress.yaml \
+  kubernetes/monitoring/grafana-ingress.yaml \
+  kubernetes/argocd/ingress.yaml
+```
+
+**Interview talking point:** Let's Encrypt staging has no rate limits and uses a separate CA. Staging certs are browser-untrusted but functionally identical for testing DNS-01 challenge flows. Always develop against staging, use prod only when you need a trusted cert.
+
+---
+
+### Incident #14 — WordPress Pod Stuck 0/1: Two Compounding Issues
+
+**Date:** 2026-03-29
+
+**Symptom 1:** WordPress pod `0/1 Running` indefinitely. Readiness probe failing with HTTP 500 from the very first check.
+
+**Root cause 1:** The readiness probe was `httpGet GET /`. WordPress returns HTTP 500 on a fresh install before the setup wizard is completed — there are no tables in the database yet. The pod is permanently not-ready, so the Service never routes traffic to it, and the user can never reach the setup wizard to fix it. Classic chicken-and-egg deadlock.
+
+**Fix:** Change readiness probe from `httpGet` to `tcpSocket`. Apache listening on port 80 is the correct signal that the container is ready to receive traffic — the WordPress application state is irrelevant at pod startup.
+
+```yaml
+# Before
+readinessProbe:
+  httpGet:
+    path: /
+    port: 80
+
+# After
+readinessProbe:
+  tcpSocket:
+    port: 80
+```
+
+**Symptom 2:** After the probe fix was applied, a new pod was created but stayed `0/1`. `kubectl get rs -n wordpress` showed two ReplicaSets both with `DESIRED: 1`.
+
+**Root cause 2:** `wordpress-pvc` is `ReadWriteOnce`. During a rolling update, Kubernetes creates the new pod before terminating the old one. If the new pod lands on a different node, it cannot mount the PVC that is already attached to the old pod on the original node. K8s won't kill the old pod until the new one is Ready — but the new pod can never be Ready without the PVC. Deadlock.
+
+**Fix:** Add `strategy: Recreate` to the Deployment. Kubernetes terminates all old pods first (releasing the PVC), then starts the new pod.
+
+```yaml
+spec:
+  strategy:
+    type: Recreate
+```
+
+**Interview talking point:** `RollingUpdate` is the right strategy for stateless workloads. For stateful workloads with `ReadWriteOnce` PVCs, `Recreate` is required — it trades zero-downtime rollout for guaranteed PVC availability. If zero downtime is critical, the correct solution is `ReadWriteMany` storage (e.g. NFS, CephFS) so multiple pods can mount simultaneously.
+
+---
+
+### Incident #13 — MariaDB 11.8 unix_socket Auth: Root Password Rejected
+
+**Date:** 2026-03-29
+**Symptom:** `Wait for MariaDB to accept connections` exhausted all 30 retries. MariaDB pod was `1/1 Running`. Logs showed repeated:
+```
+Access denied for user 'root'@'localhost' (using password: YES)
+```
+
+**Diagnostic steps:**
+```bash
+kubectl exec -n wordpress deployment/mariadb -- mariadb --version
+# mariadb from 11.8.6-MariaDB — binary exists
+
+kubectl exec -n wordpress deployment/mariadb -- mariadb -uroot -p"change-me-root" -e "SELECT 1"
+# ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)
+
+kubectl exec -n wordpress deployment/mariadb -- mariadb -uroot -e "SELECT 1"
+# 1  ← works instantly
+```
+
+**Root cause:**
+MariaDB 11.8 changed the default root authentication plugin to `unix_socket`. With this plugin, root login is tied to the OS user running the process — password authentication is explicitly disabled for root. The `kubectl exec` command runs as root inside the container, so passwordless login works. Any attempt to use `-p` fails regardless of whether the password is correct.
+
+This is a **version behaviour change** — MariaDB 10.x used password auth for root by default. The `secrets.yaml` passwords and `.env` values were all correct; the issue was purely the auth plugin change in 11.8.
+
+**Fix applied:**
+Removed `-p` flag from both root-authenticated commands in `deploy-wordpress.yml`:
+
+```yaml
+# Before
+mariadb -uroot -p"{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}" -e "SELECT 1"
+mariadb -uroot -p"{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}" -e "GRANT ..."
+
+# After
+mariadb -uroot -e "SELECT 1"
+mariadb -uroot -e "GRANT ..."
+```
+
+**Security consideration:**
+`unix_socket` auth is actually **more secure** than password auth for root. Root can only authenticate from inside the container via `kubectl exec` — there is no remote root login path. The wordpress app user still uses password auth (`MARIADB_PASSWORD`) and only has `wordpress.*` privileges.
+
+**Interview talking point:** Always check the default authentication plugin when upgrading database versions — MariaDB 11.x and MySQL 8.x both changed root auth defaults in ways that break automation scripts written for older versions. The fix is to either explicitly set the auth plugin in the MariaDB config, or adapt the automation to use passwordless socket auth. Socket auth is the more secure choice for internal health checks and admin tasks.
 
 ---
 

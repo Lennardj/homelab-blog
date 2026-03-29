@@ -14,3 +14,24 @@ spec:
             apiTokenSecretRef:
               name: cloudflare-api-token
               key: api-token
+---
+# Staging issuer — default for all ingresses during test runs.
+# Staging certs are untrusted by browsers but have no rate limits.
+# Before recording the video, run:
+#   sed -i 's/letsencrypt-staging/letsencrypt-prod/g' kubernetes/wordpress/ingress.yaml kubernetes/monitoring/grafana-ingress.yaml kubernetes/argocd/ingress.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    email: lennardvincentjohn@gmail.com
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-staging-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
