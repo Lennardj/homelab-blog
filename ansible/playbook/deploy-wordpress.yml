@@ -82,15 +82,17 @@
       delay: 20
       until: wordpress_apply.rc == 0
 
-    - name: Wait for MariaDB to be ready
+    - name: Wait for MariaDB to accept connections
       shell: |
-        kubectl get pods -n wordpress --no-headers | (grep mariadb | grep Running || true) | wc -l
+        kubectl exec -n wordpress deployment/mariadb -- \
+          mariadb -uroot -p"{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}" -e "SELECT 1"
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: mariadb_ready
       retries: 20
       delay: 10
-      until: mariadb_ready.stdout|int >= 1
+      until: mariadb_ready.rc == 0
+      failed_when: false
 
     - name: Ensure wordpress user has grants from any host
       shell: |
