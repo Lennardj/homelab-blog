@@ -71,3 +71,12 @@
       retries: 30
       delay: 30
       until: grafana_ingress.rc == 0
+
+    - name: Register monitoring Application with Argo CD
+      command: kubectl apply -f /opt/k8s/argocd/apps/monitoring.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argo_monitoring
+      retries: 30
+      delay: 30
+      until: argo_monitoring.rc == 0

@@ -83,3 +83,12 @@
         - name: Fail after diagnostics
           fail:
             msg: "cloudflared rollout timed out - see pod describe and logs above"
+
+    - name: Register cloudflared Application with Argo CD
+      command: kubectl apply -f /opt/k8s/argocd/apps/cloudflared.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argo_cloudflared
+      retries: 30
+      delay: 30
+      until: argo_cloudflared.rc == 0

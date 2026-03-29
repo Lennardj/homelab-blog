@@ -124,3 +124,12 @@
       retries: 30
       delay: 30
       until: wordpress_ready.stdout|int >= 1
+
+    - name: Register wordpress Application with Argo CD
+      command: kubectl apply -f /opt/k8s/argocd/apps/wordpress.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argo_wordpress
+      retries: 30
+      delay: 30
+      until: argo_wordpress.rc == 0

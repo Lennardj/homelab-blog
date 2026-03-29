@@ -6,6 +6,17 @@
     kubeconfig: "/home/{{ ansible_user }}/.kube/config"
 
   tasks:
+    - name: Ensure argocd manifests directory exists
+      file:
+        path: /opt/k8s/argocd
+        state: directory
+        mode: "0755"
+
+    - name: Copy argocd manifests to control plane
+      copy:
+        src: /work/kubernetes/argocd/
+        dest: /opt/k8s/argocd/
+
     - name: Apply argocd namespace
       command: kubectl apply -f /opt/k8s/argocd/namespace.yaml
       environment:
@@ -25,17 +36,6 @@
       delay: 30
       until: helm_update.rc == 0
 
-    - name: Ensure argocd manifests directory exists
-      file:
-        path: /opt/k8s/argocd
-        state: directory
-        mode: "0755"
-
-    - name: Copy argocd manifests to control plane
-      copy:
-        src: /work/kubernetes/argocd/
-        dest: /opt/k8s/argocd/
-
     - name: Install Argo CD via Helm
       command: >
         helm upgrade --install argocd argo/argo-cd
@@ -45,7 +45,7 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: argocd_install
-      retries: 20
+      retries: 30
       delay: 30
       until: argocd_install.rc == 0
 
@@ -77,12 +77,3 @@
       command: kubectl apply -f /opt/k8s/argocd/ingress.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-
-    - name: Apply Argo CD Application CRs
-      command: kubectl apply -f /opt/k8s/argocd/apps/
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: apps_apply
-      retries: 30
-      delay: 30
-      until: apps_apply.rc == 0
