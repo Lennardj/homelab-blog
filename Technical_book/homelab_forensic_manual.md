@@ -2,7 +2,7 @@
 
 **Author:** Lennard John
 **Project:** Automated WordPress + Monitoring deployment on Proxmox
-**Status:** 🔴 Awaiting chat history files — ToC and content will be populated once all transcripts are provided.
+**Status:** In progress — incidents documented as encountered.
 
 ---
 
@@ -14,6 +14,385 @@ It is intended as:
 - A **forensic record** of the project from scratch to production
 - An **interview study guide** — every section answers "why did you do it that way?"
 - A **runbook** for repeating or extending the deployment
+
+---
+
+### Incident #12 — Argo CD Implementation: Four Bugs Found in One Review
+
+**Date:** 2026-03-29
+**Context:** After writing the initial Argo CD implementation, a pre-deploy review of all manifests and playbooks identified four bugs before the code ever ran.
+
+**Bug 1 — Task ordering: namespace applied before files existed**
+`deploy-argocd.yml` had "Apply argocd namespace" as the first task, referencing `/opt/k8s/argocd/namespace.yaml`. But the tasks to create that directory and copy files to it came *after* this task. The file didn't exist at the time of the apply.
+
+Fix: moved "Ensure directory exists" and "Copy manifests" to the top of the playbook, before any `kubectl` calls.
+
+**Bug 2 — Helm install retries missed in 30/30 standardisation**
+The Helm install task had `retries: 20` — missed during the global 30/30 pass because it already had `delay: 30`. The grep-based check only caught `retries: 20, delay: 20` pairs.
+
+Fix: set `retries: 30` on the Helm install task.
+
+**Bug 3 — Monitoring Application CR would fail: values.yaml is not a K8s manifest**
+`kubernetes/monitoring/` contains `values.yaml` — a Helm values file. Argo CD syncs a directory by applying all files in it as K8s resources. `kubectl apply -f values.yaml` would throw: `no kind is registered for the type`.
+
+Fix: added `kustomization.yaml` to `kubernetes/monitoring/` listing only `namespace.yaml` and `grafana-ingress.yaml`. Same fix applied to `kubernetes/cloudflared/`. Both Ansible and Argo CD now use `kubectl apply -k`, ensuring they apply exactly the same resources.
+
+**Bug 4 — Application CRs registered before secrets existed**
+All three Application CRs were applied at the end of `deploy-argocd.yml` (step 5 in the pipeline). But `wordpress-secrets` is created in step 7 and `cloudflared-token` is created in step 8. Argo CD would immediately begin syncing, find the deployments referencing missing secrets, and pods would crashloop.
+
+Fix: removed Application CR applies from `deploy-argocd.yml`. Each CR is now applied at the end of its respective playbook, after its secrets are created:
+- `deploy-monitoring.yml` → applies `apps/monitoring.yaml`
+- `deploy-wordpress.yml` → applies `apps/wordpress.yaml`
+- `deploy-cloudflared.yml` → applies `apps/cloudflared.yaml`
+
+**Interview talking point:** Pre-deploy code review caught all four bugs before a single run. The most common class of bug in Ansible playbooks is ordering — tasks that reference files, resources, or state that doesn't exist yet. Reading the playbook top-to-bottom as if you were the target machine is the fastest way to catch these. The kustomization.yaml alignment bug is a good example of impedance mismatch between tools — Argo CD and Ansible must agree on what "apply this directory" means, or they'll diverge silently.
+
+---
+
+### Incident #11 — Comprehensive Timing Audit: Standardising to 30/30 for Slow Hardware
+
+**Date:** 2026-03-29
+**Context:** After several timeouts on old hardware (cloudflared rollout, apt lock, MariaDB socket), a full audit of all retry/delay/timeout values was performed across all 7 playbooks in one pass.
+
+**Problem pattern identified:**
+All wait tasks had been written with `retries: 20, delay: 20` (400s max). On slow homelab hardware with a 100Mbps residential connection, this was consistently hitting limits:
+- Image pulls: 2m20s for cloudflared, similar for other images
+- MariaDB init: 60-90s before socket available
+- apt operations: could hold the lock for 5+ minutes
+
+A secondary issue was found: the workers' cloud-init wait used `cloud-init status --wait` (blocking, returns rc=1 on error state) instead of the non-blocking pattern already fixed on `k8s_all`.
+
+**Changes applied:**
+
+| Change | Before | After |
+|--------|--------|-------|
+| All pod wait retries/delays | 20/20 (400s) | 30/30 (900s) |
+| cert-manager webhook rollout | `--timeout=120s` | `--timeout=600s` |
+| MariaDB connection check | 20 retries × 10s | 30 retries × 30s |
+| MariaDB GRANT retries | 5 × 10s | 30 × 30s |
+| Workers cloud-init | `--wait` + `rc==0` | non-blocking + `'running' not in stdout` |
+| SSH waits | 20 × 20s | 20 × 60s (boot tolerance) |
+
+SSH waits kept at 20 retries but increased to 60s delay — a VM takes time to boot and SSH to start, longer delays reduce noisy retry output.
+
+**Interview talking point:** Timeout values are environment-specific. What works on a GKE cluster with 10Gbps registry pulls will fail on a homelab with a slow residential connection and old hardware. Always audit timeouts when moving to a new environment. The rule of thumb: set max wait to 3-4x the observed worst case, not the average case. For a homelab video demo, reliability matters more than speed — a 15-minute wait that always succeeds beats a 5-minute wait that fails 30% of the time.
+
+---
+
+### Incident #10 — GRANT Fails: MariaDB Socket Not Ready (Running ≠ Ready)
+
+**Date:** 2026-03-29
+**Symptom:** The `Ensure wordpress user has grants from any host` task failed all 5 retries:
+```
+ERROR 2002 (HY000): Can't connect to local server through socket '/run/mysqld/mysqld.sock' (2)
+command terminated with exit code 1
+```
+
+**Root cause:**
+The preceding wait task checked if the MariaDB pod was in `Running` state:
+```yaml
+until: mariadb_ready.stdout|int >= 1  # checks Running pod count
+```
+`Running` means the container process started — not that MariaDB finished initializing. MariaDB performs first-boot initialization (creating system tables, creating the wordpress user/database) before it creates the Unix socket and starts accepting connections. The GRANT task fired while MariaDB was still in this init phase — the socket didn't exist yet.
+
+**Fix applied:**
+Replaced the pod state check with an actual connection check using `SELECT 1`:
+```yaml
+- name: Wait for MariaDB to accept connections
+  shell: |
+    kubectl exec -n wordpress deployment/mariadb -- \
+      mariadb -uroot -p"{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}" -e "SELECT 1"
+  register: mariadb_ready
+  retries: 20
+  delay: 10
+  until: mariadb_ready.rc == 0
+  failed_when: false
+```
+
+This retries until MariaDB actually responds to a query — guaranteeing the socket exists and the server is accepting connections before GRANT runs.
+
+**Interview talking point:** `Running` state in Kubernetes means the container's main process is running — it does not mean the application inside is ready to serve requests. This distinction is exactly what readiness probes exist for. When driving application logic from Ansible (outside the cluster), you must implement your own readiness gate. `SELECT 1` is the standard MariaDB health check — it's fast, stateless, and fails clearly if the server isn't ready.
+
+---
+
+### Incident #9 — WordPress HTTP 500 (Stale MariaDB PVC, Host Not Allowed)
+
+**Date:** 2026-03-29
+**Symptom:** WordPress pod Running but never Ready. Readiness probe failing with HTTP 500 for 8+ hours, 3279 failures. No restarts (liveness TCP probe passing fine).
+
+```
+Warning  Unhealthy  56s (x3279 over 8h)  kubelet  Readiness probe failed: HTTP probe failed with statuscode: 500
+```
+
+**Diagnostic steps:**
+
+```bash
+kubectl logs -n wordpress deployment/wordpress --tail=50
+# 192.168.1.71 - - GET / HTTP/1.1" 500 2757 "kube-probe/1.30"
+# (repeated every 10s — only Apache access log, no PHP errors visible)
+
+kubectl get pods,svc -n wordpress
+# mariadb: 1/1 Running, 1 restart (8h ago)
+# wordpress: 0/1 Running, 0 restarts
+# service/mariadb: ClusterIP 10.103.238.36:3306
+
+kubectl get secret wordpress-secrets -n wordpress -o jsonpath='{.data.mariadb-password}' | base64 -d
+# change-me-app  ← correct value
+
+# Direct PHP connection test from WordPress pod:
+kubectl exec -n wordpress deployment/wordpress -- bash -c \
+  "php -r \"\\\$c=new mysqli('mariadb','wordpress','change-me-app','wordpress');echo \\\$c->connect_error?:'Connected OK';\""
+# PHP Fatal error: Host '10.96.230.12' is not allowed to connect to this MariaDB server
+
+kubectl exec -n wordpress deployment/mariadb -- mariadb -uroot -pchange-me-root -e "SELECT 1"
+# ERROR 1045: Access denied for user 'root'
+```
+
+**Root cause analysis:**
+
+Two issues working together:
+
+**Issue 1: Stale PVC data**
+Local-path-provisioner stores data on the node filesystem at `/opt/local-path-provisioner/`. When Ansible is re-run against existing VMs without a full Terraform teardown (e.g. re-running `docker-compose up`), the MariaDB PVC persists with old data. On startup, MariaDB detects an existing data directory and **skips re-initialization entirely** — `MARIADB_USER`, `MARIADB_PASSWORD`, `MARIADB_ROOT_PASSWORD` env vars are all ignored. The old user accounts remain with whatever host restrictions they had from the previous run.
+
+**Issue 2: User host grant mismatch**
+The `wordpress` MariaDB user was created with a restricted host (not `%`). When pod IPs change between cluster rebuilds (which they always do), the existing user grant no longer matches the new pod IP — hence `Host '10.96.230.12' is not allowed`.
+
+The root password denial confirmed the stale data — the root password in the current secret didn't match what was stored in the old data directory.
+
+**Fix applied:**
+Added a post-deploy task in `deploy-wordpress.yml` that explicitly grants the wordpress user wildcard host access after every deploy:
+
+```yaml
+- name: Wait for MariaDB to be ready
+  shell: |
+    kubectl get pods -n wordpress --no-headers | (grep mariadb | grep Running || true) | wc -l
+  register: mariadb_ready
+  retries: 20
+  delay: 10
+  until: mariadb_ready.stdout|int >= 1
+
+- name: Ensure wordpress user has grants from any host
+  shell: |
+    kubectl exec -n wordpress deployment/mariadb -- \
+      mariadb -uroot -p"{{ lookup('env', 'MARIADB_ROOT_PASSWORD') }}" \
+      -e "GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress'@'%' IDENTIFIED BY '{{ lookup('env', 'MARIADB_PASSWORD') }}'; FLUSH PRIVILEGES;"
+  register: grant_result
+  retries: 5
+  delay: 10
+  until: grant_result.rc == 0
+```
+
+**Security consideration:**
+`'wordpress'@'%'` allows the user to connect from any IP. This is acceptable because MariaDB is a `ClusterIP` service — port 3306 is not reachable outside the Kubernetes cluster. The wordpress user only has access to the `wordpress` database. A hardened production setup would add a `NetworkPolicy` restricting MariaDB access to only the WordPress pod.
+
+**Interview talking points:**
+- Docker/containerd volume mounts and Kubernetes PVCs are stateful. Re-running a deployment pipeline does not automatically wipe old data — you must explicitly handle idempotency for stateful services.
+- MariaDB (and MySQL) env vars like `MARIADB_USER` are init-only — they run once on first boot when the data directory is empty. This is documented behaviour but easy to forget. Always verify user grants after deploy rather than assuming env vars applied.
+- `Host 'x.x.x.x' is not allowed to connect` (Error 1130) is a host grant issue, not a password issue. The user exists but doesn't have permission from that source IP. Always check `SELECT user, host FROM mysql.user` when debugging connection issues.
+
+---
+
+### Incident #8 — cloudflared Rollout Timeout (Slow Image Pull on Old Hardware)
+
+**Date:** 2026-03-29
+**Symptom:** `deploy-cloudflared.yml` failed with "cloudflared rollout timed out". The rescue block fired and Ansible exited with code 2.
+
+```
+fatal: [k8s-master-01]: FAILED! => {"msg": "cloudflared rollout timed out - see pod describe and logs above"}
+```
+
+**Diagnostic commands run:**
+```bash
+kubectl get pods -n cloudflared
+# NAME                           READY   STATUS    RESTARTS   AGE
+# cloudflared-75c67c554b-8xbt8   1/1     Running   0          43m
+# cloudflared-75c67c554b-jqwqh   1/1     Running   0          43m
+
+kubectl describe pods -n cloudflared
+# Pod 1 image pull: 1m6.564s
+# Pod 2 image pull: 2m20.474s (including waiting)
+
+kubectl logs -n cloudflared -l app=cloudflared --tail=50
+# INF Registered tunnel connection connIndex=0 ... location=akl01
+# INF Registered tunnel connection connIndex=1 ... location=wlg01
+# INF Registered tunnel connection connIndex=2 ... location=akl01
+# INF Registered tunnel connection connIndex=3 ... location=wlg01
+```
+
+**Key observation:** Both pods were `Running` and `Ready` with 0 restarts. The tunnel had all 4 connections registered to Cloudflare edge. cloudflared was working perfectly — Ansible just gave up before the pods finished starting.
+
+**Root cause:**
+The rollout timeout was `120s`. Pod 2's image pull alone took `2m20s` — longer than the entire timeout. On old hardware with a slow internet connection, pulling a 27MB image can take several minutes. `kubectl rollout status` waits for all replicas to become Ready, but gave up at 120s while the second pod was still pulling its image.
+
+**Fix applied:**
+```yaml
+# Before
+command: kubectl rollout status deployment/cloudflared -n cloudflared --timeout=120s
+
+# After
+command: kubectl rollout status deployment/cloudflared -n cloudflared --timeout=600s
+```
+
+**Interview talking point:** Always size rollout timeouts to your environment. Cloud clusters with fast registries can pull images in seconds — homelab hardware on a residential connection can take minutes. A rollout timeout failure does not mean the deployment is broken; always check pod status and logs before concluding there is an application error. The rescue block (pod describe + logs) is what enabled fast diagnosis here.
+
+---
+
+### Incident #7 — apt-daily.timer Restarting unattended-upgrades Mid-Playbook
+
+**Date:** 2026-03-28
+**Symptom:** `Install kubelet, kubeadm, kubectl` failed on all nodes with:
+```
+E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?
+```
+This happened even though a dedicated task had already stopped `unattended-upgrades` and the apt lock wait had passed earlier in the playbook.
+
+**Key clue:** The Ansible apt module already had `DPkg::Lock::Timeout=60` set — it waited a full 60 seconds and still couldn't acquire the lock. Something was actively holding it for over a minute.
+
+**Root cause:**
+`unattended-upgrades` is managed by two systemd timers:
+- `apt-daily.timer` — triggers `apt-get update` cache refresh
+- `apt-daily-upgrade.timer` — triggers the actual unattended upgrade
+
+When `systemctl stop unattended-upgrades` ran earlier in the playbook, it stopped the service process. But these timers were still active. By the time Ansible reached the kubelet install (several minutes later), one of the timers had fired and restarted the service — which then re-acquired the dpkg lock to run a full upgrade.
+
+**Fix applied:**
+Stop and disable all three — the service and both timers:
+```yaml
+- name: Stop and disable unattended-upgrades service and timers
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - unattended-upgrades
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+  failed_when: false
+```
+
+**Why `enabled: false`:**
+`state: stopped` only stops them for this boot. `enabled: false` prevents them from starting again on next boot — important if the playbook is re-run after a reboot. `failed_when: false` handles the case where a timer doesn't exist on minimal images.
+
+**Interview talking point:** On Ubuntu, `unattended-upgrades` is not just a service — it's driven by systemd timers. A common mistake is to stop the service and assume the problem is solved, only to have the timer restart it minutes later. Always stop the timers AND the service. On systems where you need apt to be stable for long operations (cluster bootstrap, large installs), disabling the timers for the duration is the correct approach.
+
+---
+
+### Incident #6 — Helm Not Found on cert-manager Playbook
+
+**Date:** 2026-03-28
+**Symptom:** `deploy-cert-manager.yml` failed immediately on `Add Jetstack Helm repo` with:
+```
+fatal: [k8s-master-01]: FAILED! => {"msg": "Error executing command.", "rc": 2, "stderr": "", "stdout": ""}
+[ERROR]: Error executing command: [Errno 2] No such file or directory: b'helm'
+```
+All 20 retries failed instantly — `helm` binary did not exist on the node.
+
+**Root cause:**
+Helm was only installed in `deploy-monitoring.yml` (playbook #5 in the execution order). `deploy-cert-manager.yml` is playbook #4 — it runs before monitoring. When cert-manager tried to run `helm repo add jetstack`, the binary wasn't on the node yet.
+
+Execution order in `build_inventory.py`:
+```
+1. playbook.yml             (K8s prereqs + kubeadm)
+2. cluster-services.yml     (NGINX, storage, metrics-server)
+3. cluster-networking.yml   (MetalLB)
+4. deploy-cert-manager.yml  ← helm used here
+5. deploy-monitoring.yml    ← helm was only installed here
+6. deploy-wordpress.yml
+7. deploy-cloudflared.yml
+```
+
+**Fix applied:**
+Moved helm install to `cluster-services.yml` (position 2) so it is available to all subsequent playbooks. Removed the duplicate from `deploy-monitoring.yml`.
+
+`cluster-services.yml`:
+```yaml
+- name: Install Helm
+  shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+```
+
+`deploy-monitoring.yml` — removed the duplicate helm install block.
+
+**Why `creates: /usr/local/bin/helm`:**
+This makes the task idempotent — if helm is already installed the shell command is skipped entirely. Without it, every playbook run would re-download and re-install helm unnecessarily.
+
+**Interview talking point:** Playbook execution order matters. Shared dependencies (helm, kubectl plugins, etc.) should be installed as early as possible in the pipeline — ideally in a dedicated "platform tools" playbook that all subsequent playbooks can rely on. Installing a tool in the same playbook that first needs it is fine for isolated runs but breaks when other playbooks need it earlier.
+
+---
+
+### Incident #5 — apt-get update Failing Silently (No DNS on Static IPs + ciupgrade Lock)
+
+**Date:** 2026-03-28
+**Symptom:** All three nodes failed at `Install required packages` with a blank error message: `"Failed to update apt cache after 5 retries: "`. No actual error text — just an empty string. This happened even after the cloud-init fix (Incident #4) was applied.
+
+```
+fatal: [k8s-master-01]: FAILED! => {"changed": false, "msg": "Failed to update apt cache after 5 retries: "}
+fatal: [k8s-worker-1]: FAILED! => {"changed": false, "msg": "Failed to update apt cache after 5 retries: "}
+fatal: [k8s-worker-2]: FAILED! => {"changed": false, "msg": "Failed to update apt cache after 5 retries: "}
+```
+
+**Initial suspicion — apt lock still held:**
+The playbook already had a lock-wait task (`fuser /var/lib/dpkg/lock-frontend`) that passed (ok=8). But `apt-get update` still failed immediately. The blank error message hid the real cause.
+
+**Debugging approach:**
+Compared current state against the last known working commit (`85bfd63`) via `git show`. The apt task itself was identical. The only structural change since the last working run was switching VMs from `ip=dhcp` to static IPs in Terraform.
+
+**Root cause — two issues compounding:**
+
+**Issue 1: No DNS configured on static IPs**
+
+When VMs used DHCP (`ip=dhcp`), the DHCP lease automatically provided DNS server addresses. When switched to static IPs using only:
+```hcl
+ipconfig0 = "ip=192.168.1.70/24,gw=192.168.1.254"
+```
+no DNS server was configured. The VMs had network connectivity and SSH worked (proven by ok=8 in the play recap), but `apt-get update` couldn't resolve `archive.ubuntu.com` — DNS failure. The Ansible apt module swallows the resolver error and reports a blank message.
+
+**Why SSH worked but DNS didn't:** SSH connects to an IP address directly — no DNS needed. `apt-get update` connects to hostnames (`archive.ubuntu.com`, `security.ubuntu.com`) — requires DNS.
+
+**Issue 2: `ciupgrade = true` + unattended-upgrades re-acquiring apt lock**
+
+Even with the lock-wait task passing briefly, `unattended-upgrades` (still running as a systemd service) could re-acquire the apt lock between the check and the actual `apt-get update` run. On slow hardware this race condition is more likely.
+
+**Fix applied:**
+
+`terraform/proxmox/main.tf` — add nameserver and disable ciupgrade on both VMs:
+```hcl
+# Before
+ipconfig0 = "ip=${var.master_ip}/24,gw=${var.vm_gateway}"
+ciupgrade  = true
+
+# After
+ipconfig0  = "ip=${var.master_ip}/24,gw=${var.vm_gateway}"
+nameserver = "8.8.8.8 8.8.4.4"
+ciupgrade  = false
+```
+
+`ansible/playbook/playbook.yml` — stop unattended-upgrades before any apt task:
+```yaml
+- name: Stop unattended-upgrades to prevent apt lock conflicts
+  systemd:
+    name: unattended-upgrades
+    state: stopped
+  failed_when: false
+- name: Fix any partial dpkg state left by unattended-upgrades
+  command: dpkg --configure -a
+  failed_when: false
+  changed_when: false
+```
+
+**Why `dpkg --configure -a` after stopping it:**
+If `unattended-upgrades` was mid-run when stopped, dpkg could be left in a partial configuration state. `dpkg --configure -a` completes any pending package configurations before we touch apt, ensuring a clean state.
+
+**Why `failed_when: false` on both tasks:**
+`systemctl stop` may fail if the service doesn't exist (e.g. minimal image). `dpkg --configure -a` may produce warnings but still be safe to proceed. Neither failure should abort the playbook.
+
+**Interview talking points:**
+- A blank apt error message almost always means DNS failure or network unreachability — the package manager can't report what it can't reach. Always check DNS first: `ping archive.ubuntu.com`.
+- Static IPs in cloud-init require explicit DNS configuration. DHCP gives you DNS for free; static IPs do not. This is easy to miss because other network functionality (SSH, ping by IP) works fine without DNS.
+- `ciupgrade = true` in Terraform/cloud-init is a hidden apt lock risk. On Ubuntu 24.04, `unattended-upgrades` runs on first boot AND cloud-init tries to run `apt-get upgrade` — two processes competing for the same lock. Disabling `ciupgrade` removes one of the two contenders.
+- Stopping `unattended-upgrades` before running apt tasks is safe — it's a background housekeeping service, not a dependency of any package install. It restarts on the next scheduled run automatically.
 
 ---
 
@@ -161,93 +540,110 @@ Once all files are present, the document will be populated in full following the
 
 ---
 
-## Planned Table of Contents (Draft — will be expanded from transcripts)
+## Table of Contents
+
+### Part 0: Career Context & Project Motivation
+- 0.1 Why This Project Was Built (Platform Engineer job application target)
+- 0.2 How to Use This Document (interview study guide, runbook, forensic record)
+- 0.3 Mapping Skills to Job Descriptions (Terraform, K8s, Cloudflare, Observability)
+- 0.4 Platform Engineer Narrative (deterministic, reproducible infrastructure over tool mastery)
 
 ### Part 1: Project Architecture & Decisions
 - 1.1 Project Overview and Goals
 - 1.2 Tool Selection Rationale (why each tool vs. alternatives)
-- 1.3 Final Architecture Diagram
+- 1.3 Full Architecture Diagram (VM → K8s → Cloudflare → User)
+- 1.4 Namespace Strategy (single cluster, multiple namespaces vs. separate clusters)
+- 1.5 Pipeline Design (Docker Compose orchestrating Terraform → Ansible)
 
 ### Part 2: Infrastructure Layer (Proxmox + Terraform)
 - 2.1 Proxmox Setup
-  - 2.1.1 Selection Rationale
-  - 2.1.2 Cloud-Init Template Configuration
-  - 2.1.3 Failure Log
-  - 2.1.4 Security & Hardening
+  - 2.1.1 Selection Rationale (bare-metal hypervisor, homelab cost)
+  - 2.1.2 Cloud-Init Template Creation (qm commands, boot-before-template rule)
+  - 2.1.3 Serial Console vs VGA Console (debugging cloud images)
+  - 2.1.4 Cloud-Init Lifecycle (first boot, machine-ID, DHCP ordering bugs)
+  - 2.1.5 Autostart & Startup Order (onboot, startup order for cluster resilience)
+  - 2.1.6 Failure Log (serial freeze, disk expansion, udev rules, template not booted)
+  - 2.1.7 Security & Hardening
 - 2.2 Terraform
   - 2.2.1 Selection Rationale
-  - 2.2.2 Provider Configuration (Proxmox + Cloudflare)
+  - 2.2.2 Provider Configuration (Proxmox 3.0.2-rc07, Cloudflare >= 5.0)
   - 2.2.3 VM Provisioning (`main.tf` breakdown)
-  - 2.2.4 Variables & Secrets (`variables.tf`, `.env`)
-  - 2.2.5 Outputs (`outputs.tf`)
-  - 2.2.6 Failure Log (provider version issues, 409 conflicts, TF_VAR naming)
-  - 2.2.7 Security & Hardening
+  - 2.2.4 Static IPs vs DHCP (why static, nameserver requirement, MetalLB conflict)
+  - 2.2.5 SSH Key Handling (`pathexpand()`, `file()` execution context, case sensitivity)
+  - 2.2.6 Variables & Secrets (`variables.tf`, `.env`, TF_VAR naming rules)
+  - 2.2.7 Outputs (`outputs.tf`, `output.json`, atomic write pattern)
+  - 2.2.8 Failure Log (provider version, 409 conflicts, TF_VAR hyphen, `~` not expanded)
+  - 2.2.9 Security & Hardening
 
 ### Part 3: Kubernetes Cluster Bootstrap (Ansible + kubeadm)
 - 3.1 Ansible
   - 3.1.1 Selection Rationale
-  - 3.1.2 Playbook Structure and Execution Order
+  - 3.1.2 Playbook Structure and Execution Order (7 playbooks, why this order)
   - 3.1.3 Inventory Generation (`build_inventory.py`)
-  - 3.1.4 Failure Log (apt lock, grep pipe bug, relative paths, KUBECONFIG)
-  - 3.1.5 Security & Hardening
+  - 3.1.4 apt Lock Management (unattended-upgrades, systemd timers, `dpkg --configure -a`)
+  - 3.1.5 Failure Log (cloud-init status, blank apt error, DNS on static IPs, helm order, kube_join_command)
+  - 3.1.6 Security & Hardening
 - 3.2 kubeadm Cluster Initialisation
-  - 3.2.1 Prerequisites (swap, kernel modules, sysctl, containerd)
-  - 3.2.2 Control Plane Init
-  - 3.2.3 Worker Join
-  - 3.2.4 Calico CNI
-  - 3.2.5 Failure Log
+  - 3.2.1 Prerequisites (swap, kernel modules, sysctl, containerd, SystemdCgroup)
+  - 3.2.2 Control Plane Init (kubeadm init, admin.conf, kubeconfig setup)
+  - 3.2.3 Worker Join (token, hostvars, kube_join_command propagation)
+  - 3.2.4 Calico CNI (pod CIDR, manifest patching)
+  - 3.2.5 Failure Log (kubeconfig localhost:8080, crictl, containerd socket timing)
 
 ### Part 4: Kubernetes Platform Services
-- 4.5 cert-manager
-  - 4.5.1 Selection Rationale (DNS-01 vs HTTP-01, why Cloudflare)
-  - 4.5.2 ClusterIssuer Configuration
-  - 4.5.3 Certificate Lifecycle
-  - 4.5.4 Failure Log
-- 4.1 NGINX Ingress Controller
-  - 4.1.1 Selection Rationale
-  - 4.1.2 Configuration Breakdown
-  - 4.1.3 Failure Log
-- 4.2 MetalLB
-  - 4.2.1 Selection Rationale
-  - 4.2.2 IPAddressPool + L2Advertisement Config
-  - 4.2.3 Failure Log
-- 4.3 Local Path Provisioner
-- 4.4 Metrics Server
+- 4.1 Helm (install order, idempotency with `creates:`, why installed in cluster-services)
+- 4.2 NGINX Ingress Controller (baremetal variant, why not cloud provider manifest)
+- 4.3 MetalLB
+  - 4.3.1 L2 Mode, IPAddressPool, L2Advertisement
+  - 4.3.2 IP Range Planning (no overlap with DHCP, node IPs, or MetalLB pool)
+  - 4.3.3 Failure Log (webhook not ready, EXTERNAL-IP pending, IP conflict)
+- 4.4 Local Path Provisioner (node filesystem storage, stale PVC data risk)
+- 4.5 Metrics Server (`--kubelet-insecure-tls` patch for homelab)
+- 4.6 cert-manager
+  - 4.6.1 DNS-01 vs HTTP-01 (why DNS-01 with Cloudflare tunnel)
+  - 4.6.2 ClusterIssuer Configuration
+  - 4.6.3 Certificate Lifecycle (ACME, TXT records, secret storage)
+  - 4.6.4 Failure Log
 
 ### Part 5: Application Deployments
 - 5.1 WordPress + MariaDB
-  - 5.1.1 Manifest Breakdown
-  - 5.1.2 Persistent Volumes
-  - 5.1.3 Secrets Injection
-  - 5.1.4 Liveness + Readiness Probes
-  - 5.1.5 Failure Log
+  - 5.1.1 Manifest Breakdown (Deployments, Services, PVCs, Ingress)
+  - 5.1.2 Persistent Volumes & Stale Data Risk
+  - 5.1.3 Secrets Injection (Ansible → K8s secret → env vars)
+  - 5.1.4 Liveness vs Readiness Probes (TCP vs HTTP, timeoutSeconds, why they differ)
+  - 5.1.5 MariaDB User Grants (`%` host, ClusterIP security boundary)
+  - 5.1.6 Failure Log (HTTP 500, CrashLoopBackOff, stale PVC, host not allowed)
 - 5.2 Prometheus + Grafana (kube-prometheus-stack)
-  - 5.2.1 Helm Values Breakdown
-  - 5.2.2 Grafana Ingress
-  - 5.2.3 Failure Log
+  - 5.2.1 Resource Constraints on Small VMs (reduced requests for homelab)
+  - 5.2.2 Helm Values Breakdown
+  - 5.2.3 Grafana Ingress & Access
+  - 5.2.4 Failure Log (pods pending, timeout too strict, resource limits)
+- 5.3 Blog Architecture Decision (WordPress chosen over Hugo static site — rationale)
 
 ### Part 6: Cloudflare Integration
 - 6.1 Zero Trust Tunnel
-  - 6.1.1 Selection Rationale (vs. port forwarding, vs. VPN)
+  - 6.1.1 Selection Rationale (vs port forwarding, vs VPN)
   - 6.1.2 Provider v4 → v5 Migration (what broke, what changed)
-  - 6.1.3 Token Auth vs. Credentials-File Auth
-  - 6.1.4 Ingress Rules via API (`terraform_data`)
-  - 6.1.5 Failure Log (409 conflict, 403 DNS, unsupported attributes)
-- 6.2 DNS Records
+  - 6.1.3 Token Auth vs Credentials-File Auth
+  - 6.1.4 Ingress Rules via API (`terraform_data`, why no local ConfigMap)
+  - 6.1.5 Metrics Binding (`0.0.0.0` vs `127.0.0.1`, liveness probe requirement)
+  - 6.1.6 Failure Log (409 conflict, 403 DNS, CrashLoopBackOff, rollout timeout)
+- 6.2 DNS Records & TLS (CNAME to tunnel, cert-manager integration)
 
 ### Part 7: CI/CD Pipeline (Docker Compose)
-- 7.1 Pipeline Design (`docker-compose.yaml`)
-- 7.2 Terraform Container (`run.sh`)
-- 7.3 Ansible Container (`build_inventory.py`)
-- 7.4 Secrets Flow (`.env` → containers)
-- 7.5 Failure Log
+- 7.1 Pipeline Design & Container Roles
+- 7.2 Terraform Container (`run.sh`, atomic `output.json` write)
+- 7.3 Ansible Container (`build_inventory.py`, playbook chain)
+- 7.4 Secrets Flow (`.env` → containers → K8s secrets)
+- 7.5 Failure Log (race conditions, `depends_on` limitations, SSH key injection)
 
 ### Part 8: Planned Additions
-- 8.1 Argo CD (GitOps)
-- 8.2 GitHub Actions (CI)
-- 8.3 Secrets Management (External Secrets / Vault)
-- 8.4 Alerting (Prometheus AlertManager)
-- 8.5 Day-2 Operations
+- 8.1 Argo CD (GitOps — pull-based vs push-based, Application CR)
+- 8.2 GitHub Actions (CI — lint, test, image build on push)
+- 8.3 Secrets Management (External Secrets Operator / Vault)
+- 8.4 Alerting (Prometheus AlertManager rules)
+- 8.5 NetworkPolicy for MariaDB (restrict to WordPress pod only)
+- 8.6 Day-2 Operations (upgrades, backup, scaling)
 
 ### Part 9: Source Reference Index
 - 9.1 Docker Base Images
@@ -256,6 +652,218 @@ Once all files are present, the document will be populated in full following the
 - 9.4 Helm Chart Repositories
 - 9.5 Terraform Providers
 - 9.6 External APIs
+
+### Appendix
+- A. Full `.env` Template (sanitised)
+- B. Deployment Checklist
+- C. Teardown Procedure
+- D. Complete Incident Log (all numbered incidents — quick reference)
+- E. Interview Q&A Prep (one answer per incident)
+
+---
+
+---
+
+## Part 0: Career Context & Project Motivation
+
+---
+
+### 0.1 Why This Project Was Built
+
+This project was not built as a hobby. It was built deliberately to close the gap between "tutorial learner" and "hireable platform engineer" — and to serve as concrete, demonstrable evidence of platform engineering capability for job applications in New Zealand's tech sector.
+
+**The author's background:**
+Lennard John is an educator transitioning into DevOps/Platform Engineering. His most recent role was Head of Digital Technology in the New Zealand education sector. He brings cross-domain experience across education, business, technology leadership, and curriculum design.
+
+**The career gap problem:**
+Most DevOps/Platform Engineer job descriptions require commercial experience with tools like Terraform, Kubernetes, CI/CD pipelines, and observability stacks. Lennard had the systems-thinking and leadership background but needed a real, end-to-end project to demonstrate hands-on capability — not just tutorial completion.
+
+**The solution:**
+Build a production-style, fully automated platform from bare metal to running application — and document every decision, failure, and fix as if it were a real production incident. The result is a deterministic platform demonstrating core platform engineering patterns: IaC provisioning, automated cluster bootstrapping, and end-to-end deployment orchestration. Not just a running application — a repeatable, rebuildable system.
+
+> "Not just a homelab. It is a production-style platform simulation. Demonstrates automation, resilience, architecture thinking."
+
+> "Good move — this is exactly the kind of thing that lifts you from 'guy with a homelab' to 'hireable platform engineer.'"
+
+> "I'm particularly interested in how platforms can reduce barriers — whether that's for students or developers — making systems more accessible and equitable."
+
+---
+
+### 0.2 Primary Job Target
+
+**Role:** Platform Engineer
+**Company:** Education Payroll (Crown entity, New Zealand)
+**Salary band:** $108,000 – $162,000 (depending on experience and capability)
+**Location:** Wellington, NZ (office-based, flexible after training period)
+**Company context:** 200 employees, processes payroll for 102,000 New Zealand teachers, ~$7.7 billion per annum
+
+**Key accountabilities from the job description (verbatim):**
+- Designing, building and maintaining scalable platform infrastructure using an infrastructure-as-code approach (OpenTofu/Terraform) and Git-based workflows
+- Operating and continuously improving an OpenShift container platform, including cluster upgrades, patching, troubleshooting and platform automation
+- Enabling reliable delivery by supporting and evolving CI/CD pipelines (Tekton/OpenShift Pipelines, Jenkins) and GitOps workflows (Argo CD/OpenShift GitOps)
+- Supporting secure, standardised platform operations including policy-as-code (OpenShift ACM policies), operators, service mesh and secrets management (HashiCorp Vault)
+- After-hours on-call support on a rostered basis
+
+**Why this role specifically:**
+The job description maps to the same foundational skills this homelab demonstrates — IaC, container orchestration, CI/CD pipeline design, and observability. The project was designed and extended with this role in mind. There are intentional gaps (OpenShift vs kubeadm, Vault vs .env secrets) — these are acknowledged and on the roadmap (see Section 0.3b).
+
+---
+
+### 0.3 Mapping Homelab Skills to Job Requirements
+
+#### 0.3a Current Homelab Coverage
+
+| Job Requirement | Status | Homelab Demonstration |
+|---|---|---|
+| IaC with Terraform + Git workflows | ✅ Done | Terraform provisions all VMs, Cloudflare resources, DNS records. All config in Git. |
+| Container platform operations | ✅ Done | 3-node kubeadm cluster on Proxmox. Calico, MetalLB, NGINX Ingress. |
+| CI/CD pipeline design | ✅ Done | Docker Compose: Terraform → Python inventory → Ansible → Kubernetes |
+| Observability | ✅ Done | Prometheus + Grafana via Helm (kube-prometheus-stack) |
+| Platform reliability & incident response | ✅ Done | 9+ documented incidents with root cause analysis and fixes |
+| Secrets injection | 🟡 Partial | `.env` → K8s secrets via Ansible. Vault not yet implemented. |
+| GitOps | 🟡 Partial | Argo CD planned — currently Ansible push-based |
+| Policy-as-code | ❌ Planned | NetworkPolicy (MariaDB restriction) and OPA on roadmap |
+
+#### 0.3b Intentional Gaps & Roadmap
+
+The homelab uses kubeadm (not OpenShift), Ansible push (not Tekton/Argo CD), and `.env` secrets (not Vault). These are known gaps — not oversights. The bridging language for interview:
+
+| Role Requires | Homelab Has | Bridge Statement |
+|---|---|---|
+| OpenShift container platform | kubeadm K8s cluster | "I understand the Kubernetes foundation that OpenShift is built on — operators, CRDs, RBAC, ingress. OpenShift adds enterprise tooling on top of that." |
+| Tekton / Jenkins pipelines | Docker Compose + Ansible | "My pipeline (Terraform → Ansible → kubectl apply) is the conceptual precursor to GitOps tools like Tekton. The pattern is the same — declarative, automated, auditable." |
+| HashiCorp Vault | .env → K8s secrets | "I understand the secrets lifecycle — creation, injection, rotation. Vault adds centralised management and audit trails, which I'm implementing next." |
+| Argo CD / OpenShift GitOps | Ansible push-based deploy | "I'm currently push-based. Argo CD is on my roadmap — it's the pull-based evolution of what I'm already doing." |
+
+#### 0.3c Feature Translation (Reframing for Interview)
+
+Always translate tool names to outcomes:
+
+| What you built | How to say it |
+|---|---|
+| Docker Compose pipeline | "CI/CD pipeline foundation" |
+| Ansible playbooks | "Configuration management and automated provisioning" |
+| kubectl apply in Ansible | "GitOps precursor — declarative, version-controlled deployment" |
+| `.env` secrets | "Secrets lifecycle management — injection, scoping, separation from code" |
+| Grafana dashboards | "Observability layer with real-time platform visibility" |
+
+---
+
+### 0.4 Platform Engineer Narrative
+
+The key narrative is: **platform, not just tools**.
+
+> "I didn't just build a Kubernetes cluster — I built a repeatable platform. The entire environment can be recreated end-to-end using Terraform, Ansible, and Docker Compose."
+
+> "I treat my homelab like production — everything is automated, version-controlled, and rebuildable from scratch."
+
+> "My focus isn't just getting things running — it's making them reliable, reproducible, and easy to maintain for others."
+
+**The secret weapon — teaching background:**
+The author's teaching background is reframed as a platform engineering advantage, not a liability:
+- Teachers break down complex systems clearly → useful for documentation, runbooks, and cross-team communication
+- Education leadership → stakeholder management, systems thinking, scalability
+- "As a teacher, I've developed the ability to break down complex systems — which actually helps when documenting and designing platforms."
+- "I naturally think about systems in terms of scalability and user experience — not just technical implementation."
+
+#### 0.4a The Equity Angle (NZ Context — Secret Weapon)
+
+For Crown entity roles in New Zealand (like Education Payroll), values alignment matters as much as technical fit. Use this framing:
+
+> "I'm particularly interested in how platforms can reduce barriers — whether that's for students or developers — making systems more accessible and equitable."
+
+This connects platform engineering directly to the author's education background and signals Te Tiriti / equity awareness — a genuine differentiator for NZ public sector roles.
+
+**Addressing the "no commercial experience" objection:**
+> "That's true — but I've deliberately built real-world systems to bridge that gap. I'm not coming in cold — I've already worked through many of the same challenges around automation, networking, and reliability, just in my own environment."
+
+> "I may not have done this in a commercial environment yet, but I've built and troubleshot the same kinds of systems you'd expect in one."
+
+> "I'm still early in my DevOps journey, but I've deliberately built real systems end-to-end — not just followed tutorials."
+
+**Final positioning statement:**
+> "What I bring is a combination of hands-on platform engineering skills and a systems-thinking mindset from my leadership background. I haven't just learned tools — I've built a full platform end-to-end, automated it, broken it, and improved it. I'm now looking to apply that in a real environment at scale."
+
+---
+
+### 0.5 Interview Strategy
+
+**Pre-application outreach (LinkedIn/email to hiring manager):**
+
+Reach out before applying with a short message (5–7 lines max):
+
+```
+Kia ora,
+
+I saw the Platform Engineer role on Seek and thought I'd reach out.
+
+I've been building a Kubernetes setup using Terraform and Ansible in my own lab,
+so it looks quite similar to what I've been working on.
+
+Just curious, is the team more focused right now on building out the platform,
+or improving what's already there?
+
+Thanks,
+Lennard
+```
+
+**Strategy:** Send message → Get reply → Apply within 24–48 hours → Mention in cover letter: "After speaking with [Name]..."
+
+**In interview — anchor everything to the homelab:**
+Use phrases like: "In my platform...", "In my setup...", "What I designed was..."
+Always translate: Tool → Outcome, Tech → Business value.
+
+**Key signature lines for interview:**
+
+- *On infrastructure:* "I use Terraform with the Proxmox provider to provision infrastructure, and I structure outputs so they feed directly into configuration management."
+- *On automation:* "I built a pipeline where Terraform outputs VM data, a Python script generates dynamic inventory, and Ansible bootstraps Kubernetes — all orchestrated through Docker Compose."
+- *On networking:* "I use Cloudflare Tunnel and Zero Trust to securely expose services without opening ports — which mirrors how modern edge-first architectures work."
+- *On reliability:* "In distributed systems, reliability comes from resilience — not timing. Kubernetes converges over time — you design for that, not against it."
+- *On observability:* "I've integrated Prometheus and Grafana so I can actually see what's happening inside the cluster."
+- *On OpenShift bridge:* "I understand the Kubernetes foundation that OpenShift is built on. OpenShift adds enterprise tooling on top — the operational patterns translate directly."
+
+#### 0.5a Follow-up Strategy (After Hiring Manager Replies)
+
+When the hiring manager responds to your outreach, listen to their answer and reflect it back:
+
+**If they say "building out the platform":**
+> "That's great — I've been doing a lot of that in my own setup, especially around automating infrastructure and bootstrapping Kubernetes from scratch."
+
+**If they say "improving and evolving what's already there":**
+> "That's interesting — I've recently been focusing more on reliability and observability in my own environment, making sure the platform is maintainable and visible."
+
+Then apply within 24–48 hours and mention in your cover letter: *"After speaking with [Name], I understand the team is focused on [X]..."*
+
+#### 0.5b Interview Closing Lines
+
+Use these to close strong without overselling:
+
+**Growth mindset:**
+> "I'm still early in my DevOps journey, but I've deliberately built real systems end-to-end — not just followed tutorials."
+
+**Confidence without arrogance:**
+> "I may not have done this in a commercial environment yet, but I've built and troubleshot the same kinds of systems you'd expect in one."
+
+**Final punch:**
+> "What I'm really looking for is a team where I can take what I've built independently and apply it at scale."
+
+---
+
+### 0.6 Alternative Positioning
+
+This homelab is not only relevant to Platform Engineer roles. The same project, reframed:
+
+| Target Role | Key Reframe |
+|---|---|
+| **DevOps Engineer** | Emphasise the pipeline (Terraform → Ansible → K8s), automation patterns, and incident resolution |
+| **Solution Architect** | Emphasise architecture decisions (why Cloudflare over VPN, why MetalLB, why cert-manager DNS-01), integration design, and trade-off reasoning |
+| **Cloud Engineer** | Emphasise that cloud principles (IaC, immutable infra, declarative config) were applied on-prem — same patterns, different substrate |
+| **Infrastructure Engineer** | Emphasise bare-metal provisioning, networking (Calico, MetalLB), storage (local-path-provisioner), and OS-level configuration (kubeadm, containerd) |
+
+For Solution Architect roles specifically, reframe language:
+- "Built CI pipelines" → "Designed delivery pipelines aligned to enterprise standards"
+- "Kubernetes networking" → "Designed intra-cluster routing and service mesh foundations"
+- "Cloudflare Tunnel" → "Designed edge-first secure access architecture without inbound exposure"
 
 ---
 

@@ -1,7 +1,6 @@
 .env
 draft_README.md
 ./test_folder
-KNOWLEDGE_BASE.md
 command_output
 command_output.txt
 CLAUDE.md
