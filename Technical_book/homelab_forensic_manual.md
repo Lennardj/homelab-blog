@@ -1774,3 +1774,39 @@ readinessProbe:
 - Liveness and readiness probes serve different purposes: liveness checks if the process is alive (restart if not), readiness checks if it can serve traffic (remove from load balancer if not). Using HTTP for liveness on a DB-dependent app creates a false dependency — Apache can be healthy even when the DB is unreachable.
 - `timeoutSeconds` defaults to 1 second, which is aggressive for anything that does I/O. Always set it explicitly.
 - On a fresh WordPress deploy, the install wizard is expected — it means DB credentials are correct but WordPress hasn't been configured yet. Navigate to `/wp-admin/install.php` to complete setup.
+
+---
+
+## Next Steps: Secrets Management Options
+
+### Context
+
+All secrets currently live in `.env` on the local machine. Docker Compose injects them as environment variables into the Terraform and Ansible containers. Nothing sensitive is committed to Git — this is correct.
+
+**The gap this creates:** If a CI pipeline (e.g. GitHub Actions) needs to run `docker compose up` or Ansible directly, there is no safe way to inject `.env` into it without hardcoding secrets in workflow YAML or GitHub repository secrets for every variable. That approach does not scale and has no audit trail.
+
+### Self-Hosting Options
+
+| Option | Notes |
+|--------|-------|
+| **HashiCorp Vault** | The original. Kubernetes Helm deployment, raft storage (no external DB). Most features, steepest learning curve. BSL license since 2023. |
+| **OpenBao** | Community fork of Vault after the BSL change. Drop-in replacement, MPL-2.0 license. Best choice if you want Vault but fully open source. |
+| **Infisical** | Modern UI, easier setup, built-in K8s operator. Good docs. Slightly less mature than Vault. |
+| **Doppler** | SaaS-first, self-hosted option is enterprise only. Not worth it for homelab. |
+| **SOPS + age** | Not a server — encrypts secrets files with an age key pair. Commit encrypted secrets to Git. Argo CD decrypts via SOPS plugin. No new infrastructure. |
+
+### Recommended Path
+
+**Short term — SOPS + age:**
+Encrypt `.env` secrets, commit encrypted file to Git. Argo CD decrypts at apply time using a key stored as a K8s secret. CI pipelines receive the same key from a GitHub Actions secret (one secret, not twenty).
+
+**Long term — OpenBao + External Secrets Operator:**
+```
+OpenBao (in-cluster) → External Secrets Operator → K8s secrets
+.env only needed once to bootstrap OpenBao on first deploy
+```
+External Secrets Operator watches OpenBao and keeps K8s secrets in sync. Application manifests reference K8s secrets as normal — no app changes needed. Secrets are rotatable without redeploying.
+
+### Interview Talking Point
+
+The `.env` pattern is a valid starting point for a homelab — it keeps secrets off Git and keeps the pipeline simple. The limitation appears the moment you introduce CI or multiple operators. Vault/OpenBao solves this by making secrets addressable by path and policy rather than by file location. The External Secrets Operator bridges Vault and Kubernetes — pods consume standard K8s secrets, and Vault is the source of truth. This is the same pattern used in production GitOps deployments at scale.

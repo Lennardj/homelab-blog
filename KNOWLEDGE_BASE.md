@@ -552,3 +552,38 @@ Wait ~60s after deploy for trusted certs to issue, then record.
 - [ ] `grafana.lennardjohn.org` loads Grafana
 - [ ] `argocd.lennardjohn.org` loads Argo CD UI
 - [ ] All 3 Argo CD apps show `Synced` + `Healthy`
+
+---
+
+## 15. Next Steps: Secrets Management
+
+### Current State
+
+All secrets live in `.env` on the local machine. Docker Compose injects them as env vars into Terraform and Ansible containers. Nothing sensitive is committed to Git.
+
+**Limitation:** `.env` is manual, per-machine, and not auditable. If a CI pipeline (GitHub Actions) needs to run the Ansible playbooks, there is no safe way to inject `.env` into it without hardcoding secrets in YAML.
+
+### Options
+
+| Option | Notes |
+|--------|-------|
+| **HashiCorp Vault** | The original. Kubernetes Helm deployment, raft storage (no external DB). Most features, steepest learning curve. BSL license since 2023. |
+| **OpenBao** | Community fork of Vault after the BSL change. Drop-in replacement, MPL-2.0 license. Best choice if you want Vault but fully open source. |
+| **Infisical** | Modern UI, easier setup, built-in K8s operator. Good docs. Slightly less mature than Vault. |
+| **Doppler** | SaaS-first, self-hosted option is enterprise only. Not worth it for homelab. |
+| **SOPS + age** | Not a server — encrypts secrets files with a key pair. Simpler: no new service to run. Works with Argo CD via the SOPS plugin. |
+
+### Recommended Path for This Project
+
+1. **Short term — SOPS + age**: Encrypt `.env` (or individual secret files), commit the encrypted file to Git. Argo CD decrypts on apply using a key stored in-cluster. CI pipelines get the same key from a GitHub Actions secret. Zero new infrastructure.
+2. **Long term — OpenBao in-cluster + External Secrets Operator**: Full secrets management with audit logs, access policies, and dynamic secrets. External Secrets Operator syncs Vault secrets into K8s secrets automatically.
+
+### How Vault fits the GitOps pipeline
+
+```
+Current:  .env (local) → Docker Compose → Ansible → K8s secrets
+With Vault: Vault (in-cluster) → External Secrets Operator → K8s secrets
+            .env only needed to bootstrap Vault once
+```
+
+Argo CD + External Secrets Operator means secrets are never in Git, never in `.env` on CI, and are rotatable without redeploying the application.
