@@ -33,3 +33,4 @@ jobs:
         run: |
           docker compose down --remove-orphans
           sudo rm -rf terraform/proxmox/.terraform
+          docker system prune --all --force --volumes
