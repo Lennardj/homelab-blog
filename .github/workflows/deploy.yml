@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Copy .env
-        run: cp /home/runner/.env .env
+        run: cp /home/lennard/.env .env
 
       - name: Run pipeline
         run: docker compose up
