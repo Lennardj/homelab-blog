@@ -11,6 +11,7 @@ data:
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Lennard John — Platform Engineer</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -98,29 +99,70 @@ data:
 
             .bio span { color: #4ade80; }
 
-            .links {
+            /* Homelab services */
+            .section-label {
+                font-size: 0.7rem;
+                color: #484f58;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                margin-bottom: 0.85rem;
+            }
+
+            .services {
                 display: flex;
                 gap: 0.75rem;
                 flex-wrap: wrap;
             }
 
-            .link-btn {
-                display: inline-block;
-                padding: 0.45rem 1.1rem;
+            .service-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.5rem 1.25rem;
                 border: 1px solid #4ade80;
                 color: #4ade80;
                 text-decoration: none;
                 border-radius: 4px;
-                font-size: 0.82rem;
+                font-size: 0.85rem;
                 font-family: inherit;
                 transition: background 0.15s, color 0.15s;
             }
 
-            .link-btn:hover {
+            .service-btn:hover {
                 background: #4ade80;
                 color: #0d1117;
             }
 
+            .service-btn i { font-size: 0.9rem; }
+
+            /* Social icons */
+            .socials {
+                display: flex;
+                gap: 1rem;
+                align-items: center;
+            }
+
+            .social-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 40px;
+                height: 40px;
+                border: 1px solid #30363d;
+                border-radius: 6px;
+                color: #8b949e;
+                text-decoration: none;
+                font-size: 1.1rem;
+                transition: border-color 0.15s, color 0.15s, background 0.15s;
+            }
+
+            .social-icon:hover {
+                border-color: #4ade80;
+                color: #4ade80;
+                background: rgba(74, 222, 128, 0.05);
+            }
+
+            /* Stack tags */
             .stack {
                 display: flex;
                 flex-wrap: wrap;
@@ -169,11 +211,35 @@ data:
 
                 <hr class="divider">
 
-                <div class="links">
-                    <a class="link-btn" href="https://blog.lennardjohn.org">Blog</a>
-                    <a class="link-btn" href="https://grafana.lennardjohn.org">Grafana</a>
-                    <a class="link-btn" href="https://github.com/Lennardj" target="_blank">GitHub</a>
-                    <a class="link-btn" href="https://www.linkedin.com/in/lennardjohn/" target="_blank">LinkedIn</a>
+                <div class="section-label">// homelab</div>
+                <div class="services">
+                    <a class="service-btn" href="https://blog.lennardjohn.org">
+                        <i class="fa-solid fa-rss"></i> Blog
+                    </a>
+                    <a class="service-btn" href="https://grafana.lennardjohn.org">
+                        <i class="fa-solid fa-chart-line"></i> Grafana
+                    </a>
+                    <a class="service-btn" href="https://argocd.lennardjohn.org">
+                        <i class="fa-solid fa-code-branch"></i> Argo CD
+                    </a>
+                </div>
+
+                <hr class="divider">
+
+                <div class="section-label">// find me</div>
+                <div class="socials">
+                    <a class="social-icon" href="https://www.youtube.com/@mrjohnhomelab" target="_blank" title="YouTube">
+                        <i class="fa-brands fa-youtube"></i>
+                    </a>
+                    <a class="social-icon" href="https://github.com/Lennardj" target="_blank" title="GitHub">
+                        <i class="fa-brands fa-github"></i>
+                    </a>
+                    <a class="social-icon" href="https://www.linkedin.com/in/lennardjohn/" target="_blank" title="LinkedIn">
+                        <i class="fa-brands fa-linkedin"></i>
+                    </a>
+                    <a class="social-icon" href="https://dev.to/lennardj" target="_blank" title="Dev.to">
+                        <i class="fa-brands fa-dev"></i>
+                    </a>
                 </div>
 
                 <hr class="divider">
