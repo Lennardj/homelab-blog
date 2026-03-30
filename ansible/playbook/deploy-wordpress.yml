@@ -94,6 +94,18 @@
       until: mariadb_ready.rc == 0
       failed_when: false
 
+    - name: Ensure wordpress database exists
+      shell: |
+        kubectl exec -n wordpress deployment/mariadb -- \
+          mariadb -uroot \
+          -e "CREATE DATABASE IF NOT EXISTS wordpress;"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: db_result
+      retries: 30
+      delay: 30
+      until: db_result.rc == 0
+
     - name: Ensure wordpress user has grants from any host
       shell: |
         kubectl exec -n wordpress deployment/mariadb -- \
