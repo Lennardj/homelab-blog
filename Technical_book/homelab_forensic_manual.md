@@ -404,6 +404,65 @@ It is intended as:
 
 ---
 
+### Incident #18 — Nginx ssl-redirect Loop Through Cloudflare Tunnel
+
+**Date:** 2026-03-30
+**Symptom:** Site works on local machine but all other devices get "too many redirects" error.
+
+**Root cause:** nginx ingress had `ssl-redirect: true`. Cloudflare tunnel forwards traffic to nginx as HTTP internally. nginx sees HTTP and issues a 301 to HTTPS. The browser follows the redirect back through Cloudflare → tunnel → nginx (HTTP again) → 301 again → infinite loop. Local machine bypassed the loop by resolving directly to the MetalLB IP rather than going through the Cloudflare tunnel.
+
+**Fix:** Set `nginx.ingress.kubernetes.io/ssl-redirect: "false"` on all three ingresses.
+
+```yaml
+# Before
+nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# After
+nginx.ingress.kubernetes.io/ssl-redirect: "false"
+```
+
+**Why this is safe:** Cloudflare enforces HTTPS at its edge — browsers can only reach the site via HTTPS through Cloudflare. nginx never sees a raw internet HTTP request, so there is nothing to upgrade. The ssl-redirect annotation is only needed when nginx is directly internet-facing.
+
+**Interview talking point:** This is a classic reverse proxy layering issue. When you have two layers both trying to enforce HTTPS (Cloudflare + nginx), you get a redirect loop. The rule is: only the outermost layer should enforce the protocol upgrade. Everything behind it should trust the upstream and serve content directly.
+
+---
+
+### Incident #17 — MariaDB OOMKill During Init: wordpress Database Never Created
+
+**Date:** 2026-03-30
+**Symptom:** WordPress shows "Error establishing a database connection" on every request. MariaDB pod is `1/1 Running` with 1 restart.
+
+**Diagnostic:**
+```bash
+kubectl exec -n wordpress deployment/mariadb -- mariadb -uroot -e "SHOW DATABASES;"
+# Result: information_schema, mysql, performance_schema, sys
+# wordpress database missing
+```
+
+**Root cause:** MariaDB was OOMKilled (exit code 137, memory limit 512Mi) during first-time initialization. The `MARIADB_DATABASE` environment variable triggers database creation as part of the init script. When the container is killed mid-init, the data directory is partially written. On restart, MariaDB detects the data directory already exists and skips re-initialization — so the `wordpress` database is never created.
+
+The existing Ansible GRANT task (`GRANT ALL PRIVILEGES ON wordpress.*`) does not create the database — it only grants permissions on it. If the database doesn't exist, the GRANT succeeds silently but WordPress still can't connect.
+
+**Fix:** Add an explicit `CREATE DATABASE IF NOT EXISTS` task in `deploy-wordpress.yml` before the GRANT:
+
+```yaml
+- name: Ensure wordpress database exists
+  shell: |
+    kubectl exec -n wordpress deployment/mariadb -- \
+      mariadb -uroot \
+      -e "CREATE DATABASE IF NOT EXISTS wordpress;"
+  register: db_result
+  retries: 30
+  delay: 30
+  until: db_result.rc == 0
+```
+
+`IF NOT EXISTS` makes this idempotent — if MariaDB initialized correctly and the database already exists, the statement is a no-op.
+
+**Interview talking point:** Never rely solely on a container's init script to create critical state. If the container can be OOMKilled or interrupted, that state may never be created. Idempotent infrastructure-as-code (Ansible `CREATE IF NOT EXISTS`) is the correct pattern — it works whether the automated init ran or not.
+
+---
+
 ### Incident #16 — Remote Access via Tailscale: Subnet Routing for Full Pipeline
 
 **Date:** 2026-03-30
