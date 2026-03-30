@@ -26,6 +26,8 @@ jobs:
         run: cp /home/lennard/.env .env
 
       - name: Run pipeline
+        env:
+          TF_STATE_DIR: /home/lennard/.terraform-state
         run: docker compose up
 
       - name: Cleanup
