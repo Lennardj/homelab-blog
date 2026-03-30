@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: landing-html
+  namespace: landing
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Lennard John — Platform Engineer</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+
+            body {
+                background: #0d1117;
+                color: #c9d1d9;
+                font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 2rem;
+            }
+
+            .terminal {
+                max-width: 700px;
+                width: 100%;
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                overflow: hidden;
+                box-shadow: 0 0 40px rgba(74, 222, 128, 0.05);
+            }
+
+            .terminal-bar {
+                background: #161b22;
+                padding: 12px 16px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                border-bottom: 1px solid #30363d;
+            }
+
+            .dot { width: 12px; height: 12px; border-radius: 50%; }
+            .dot.red    { background: #ff5f57; }
+            .dot.yellow { background: #ffbd2e; }
+            .dot.green  { background: #28c840; }
+
+            .terminal-title {
+                flex: 1;
+                text-align: center;
+                font-size: 0.75rem;
+                color: #8b949e;
+            }
+
+            .terminal-body { padding: 2rem; }
+
+            .prompt { color: #4ade80; font-size: 0.8rem; margin-bottom: 0.3rem; }
+
+            .name {
+                font-size: 2.4rem;
+                font-weight: 700;
+                color: #4ade80;
+                letter-spacing: -1px;
+                line-height: 1.1;
+            }
+
+            .cursor {
+                display: inline-block;
+                width: 3px;
+                height: 2.2rem;
+                background: #4ade80;
+                vertical-align: bottom;
+                margin-left: 2px;
+                animation: blink 1s step-end infinite;
+            }
+
+            @keyframes blink {
+                0%, 100% { opacity: 1; }
+                50%       { opacity: 0; }
+            }
+
+            .role { color: #8b949e; font-size: 0.95rem; margin-top: 0.4rem; }
+
+            .divider {
+                border: none;
+                border-top: 1px solid #21262d;
+                margin: 1.5rem 0;
+            }
+
+            .bio {
+                font-size: 0.88rem;
+                line-height: 1.9;
+                color: #c9d1d9;
+            }
+
+            .bio span { color: #4ade80; }
+
+            .links {
+                display: flex;
+                gap: 0.75rem;
+                flex-wrap: wrap;
+            }
+
+            .link-btn {
+                display: inline-block;
+                padding: 0.45rem 1.1rem;
+                border: 1px solid #4ade80;
+                color: #4ade80;
+                text-decoration: none;
+                border-radius: 4px;
+                font-size: 0.82rem;
+                font-family: inherit;
+                transition: background 0.15s, color 0.15s;
+            }
+
+            .link-btn:hover {
+                background: #4ade80;
+                color: #0d1117;
+            }
+
+            .stack {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+
+            .tag {
+                background: #161b22;
+                border: 1px solid #30363d;
+                color: #8b949e;
+                font-size: 0.75rem;
+                padding: 0.2rem 0.6rem;
+                border-radius: 4px;
+            }
+
+            .footer {
+                font-size: 0.75rem;
+                color: #484f58;
+                margin-top: 1.5rem;
+            }
+
+            .footer a { color: #4ade80; text-decoration: none; }
+        </style>
+    </head>
+    <body>
+        <div class="terminal">
+            <div class="terminal-bar">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+                <span class="terminal-title">lennard@homelab ~ </span>
+            </div>
+            <div class="terminal-body">
+
+                <div class="prompt">$ whoami</div>
+                <div class="name">Lennard John<span class="cursor"></span></div>
+                <div class="role">Platform Engineer</div>
+
+                <hr class="divider">
+
+                <div class="bio">
+                    Self-hosted homelab running <span>WordPress</span>, <span>Grafana</span> and <span>Argo CD</span><br>
+                    on <span>Kubernetes</span> — fully automated with <span>Terraform</span> and <span>Ansible</span>.<br>
+                    Zero-trust public access via <span>Cloudflare Tunnel</span>.
+                </div>
+
+                <hr class="divider">
+
+                <div class="links">
+                    <a class="link-btn" href="https://blog.lennardjohn.org">Blog</a>
+                    <a class="link-btn" href="https://grafana.lennardjohn.org">Grafana</a>
+                    <a class="link-btn" href="https://github.com/Lennardj" target="_blank">GitHub</a>
+                    <a class="link-btn" href="https://www.linkedin.com/in/lennardjohn/" target="_blank">LinkedIn</a>
+                </div>
+
+                <hr class="divider">
+
+                <div class="stack">
+                    <span class="tag">Kubernetes</span>
+                    <span class="tag">Terraform</span>
+                    <span class="tag">Ansible</span>
+                    <span class="tag">Argo CD</span>
+                    <span class="tag">Prometheus</span>
+                    <span class="tag">Cloudflare</span>
+                    <span class="tag">Docker</span>
+                    <span class="tag">Linux</span>
+                </div>
+
+                <div class="footer">
+                    <br>$ infrastructure as code &mdash; everything in <a href="https://github.com/Lennardj/homelab-blog" target="_blank">git</a>
+                </div>
+
+            </div>
+        </div>
+    </body>
+    </html>

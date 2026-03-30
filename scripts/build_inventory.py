@@ -148,6 +148,12 @@ def main():
                 "-i", str(INVENTORY_PATH),
                 "/work/ansible/playbook/deploy-cloudflared.yml",
                 "-vv"
+            ],
+            [
+                "ansible-playbook",
+                "-i", str(INVENTORY_PATH),
+                "/work/ansible/playbook/deploy-landing.yml",
+                "-vv"
             ]
             ]
 

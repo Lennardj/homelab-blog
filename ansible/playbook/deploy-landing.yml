@@ -1,0 +1,46 @@
+---
+- name: Deploy Landing Page to Kubernetes
+  hosts: k8s_control_plane
+  vars:
+    kubeconfig: /home/{{ ansible_user }}/.kube/config
+  become: true
+  tasks:
+    - name: Create application directory on master
+      file:
+        path: /opt/k8s/landing
+        state: directory
+        mode: "0755"
+
+    - name: Copy landing manifests to master
+      copy:
+        src: /work/kubernetes/landing/
+        dest: /opt/k8s/landing/
+        mode: "0644"
+
+    - name: Apply landing manifests
+      command: kubectl apply -k /opt/k8s/landing
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: landing_apply
+      retries: 30
+      delay: 30
+      until: landing_apply.rc == 0
+
+    - name: Wait for landing pod to be ready
+      shell: |
+        kubectl get pods -n landing --no-headers | (grep Running || true) | wc -l
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: landing_ready
+      retries: 30
+      delay: 30
+      until: landing_ready.stdout|int >= 1
+
+    - name: Register landing Application with Argo CD
+      command: kubectl apply -f /opt/k8s/argocd/apps/landing.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argo_landing
+      retries: 30
+      delay: 30
+      until: argo_landing.rc == 0

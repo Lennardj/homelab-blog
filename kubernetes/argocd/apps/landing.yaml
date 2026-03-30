@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: landing
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Lennardj/homelab-blog
+    targetRevision: main
+    path: kubernetes/landing
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: landing
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
