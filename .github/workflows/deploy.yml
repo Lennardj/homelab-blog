@@ -1,0 +1,30 @@
+name: Deploy Homelab
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'ansible/**'
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy .env
+        run: cp /home/runner/.env .env
+
+      - name: Run pipeline
+        run: docker compose up
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down --volumes --remove-orphans

@@ -1777,6 +1777,53 @@ readinessProbe:
 
 ---
 
+## Feature — GitHub Actions CI/CD (Self-Hosted Runner)
+
+### What was built
+
+A GitHub Actions workflow that triggers `docker compose up` automatically on push, replacing the manual step of running it from a laptop.
+
+**Trigger:** push to `main` on paths `terraform/**` or `ansible/**`
+**Runner:** `runner-01` — a permanent VM on Proxmox, outside Terraform management
+**Workflow file:** `.github/workflows/deploy.yml`
+
+### Why self-hosted runner on Proxmox
+
+GitHub-hosted runners are ephemeral cloud VMs. They have no access to the home LAN (`192.168.1.0/24`). Terraform needs to reach Proxmox at `192.168.1.174` and Ansible needs SSH access to `192.168.1.70-72`. A self-hosted runner on Proxmox has direct LAN access and requires no Tailscale tunnel or secret injection into GitHub.
+
+### Key design decisions
+
+**Secrets stay on the runner VM, not in GitHub.**
+`.env` is stored at `/home/runner/.env` on the runner VM. The workflow copies it into the checked-out repo directory at the start of each job. GitHub never receives secret values.
+
+**Runner is a permanent VM, not Terraform-managed.**
+The K8s VMs (master + workers) are torn down and recreated by Terraform. The runner VM must survive `terraform destroy` — so it is created manually in Proxmox and never referenced in Terraform code.
+
+**`SSH_KEY_DIR` path changes from Windows to Linux.**
+On the laptop: `SSH_KEY_DIR=C:/Users/User/.ssh`
+On the runner VM: `SSH_KEY_DIR=/home/runner/.ssh`
+This is the only `.env` change needed to move from laptop to CI.
+
+**`concurrency: group: deploy`** prevents two workflow runs executing at the same time if commits are pushed in quick succession. The second run queues rather than cancelling.
+
+**Cleanup runs on `if: always()`** — even if Terraform or Ansible fails. This ensures the `/artifacts` Docker volume (which holds `output.json`) is removed after every run. Without this, a stale `output.json` from a failed run could trick the next run's Ansible container into skipping the Terraform wait.
+
+### Runner as systemd service
+
+```bash
+cd ~/actions-runner
+sudo ./svc.sh install
+sudo ./svc.sh start
+```
+
+Registers the runner as a systemd service. Starts automatically on boot — no need to manually run `./run.sh`.
+
+### Interview talking point
+
+A self-hosted runner is the correct choice when your pipeline needs access to private infrastructure. It trades the convenience of GitHub-hosted runners (zero maintenance, fresh environment every run) for network locality and secret isolation. The runner VM is the only machine that holds credentials — rotate `.env` on the VM and the next CI run picks up the new values automatically.
+
+---
+
 ## Next Steps: Secrets Management Options
 
 ### Context

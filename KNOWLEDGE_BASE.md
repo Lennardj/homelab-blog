@@ -555,7 +555,63 @@ Wait ~60s after deploy for trusted certs to issue, then record.
 
 ---
 
-## 15. Next Steps: Secrets Management
+## 15. CI/CD — GitHub Actions (Self-Hosted Runner)
+
+### Architecture
+
+```
+git push (terraform/ or ansible/ change)
+  → GitHub detects path match
+  → Sends job to runner-01 (self-hosted VM on Proxmox)
+  → runner-01 runs docker compose up
+      → terraform container → provisions VMs
+      → ansible container  → deploys K8s
+  → Cleanup: docker compose down --volumes
+```
+
+`kubernetes/` changes do NOT trigger this workflow — Argo CD handles those via GitOps.
+
+### Runner VM
+
+| Property | Value |
+|---|---|
+| Name | runner-01 |
+| Hosted on | Proxmox (permanent VM, not Terraform-managed) |
+| Labels | `self-hosted`, `Linux`, `X64` |
+| Work dir | `~/actions-runner/_work/` |
+| Service | systemd (`sudo ./svc.sh install && start`) |
+
+The runner replaces the developer's laptop as the machine that runs `docker compose up`. All secrets stay on the runner VM — GitHub never sees them.
+
+### Secrets on the Runner VM
+
+| File | Location | Purpose |
+|---|---|---|
+| `.env` | `/home/runner/.env` | All pipeline credentials |
+| SSH private key | `~/.ssh/id_ed25519` | Ansible SSH auth to K8s nodes |
+
+**Key difference from laptop:** `SSH_KEY_DIR=/home/runner/.ssh` (Linux path, not Windows).
+
+### Workflow File
+
+`.github/workflows/deploy.yml` — triggers on push to `main` when `terraform/**` or `ansible/**` paths change.
+
+```yaml
+- Checkout repo into _work/
+- Copy /home/runner/.env → .env
+- docker compose up
+- docker compose down --volumes --remove-orphans  (always, even on failure)
+```
+
+`concurrency: group: deploy` — prevents two deploys running at the same time if pushes happen in quick succession.
+
+### Why Self-Hosted (not GitHub-hosted)
+
+GitHub-hosted runners are cloud VMs with no LAN access. They cannot reach Proxmox (`192.168.1.174`) or the K8s nodes (`192.168.1.70-72`) without a Tailscale tunnel. A self-hosted runner on Proxmox has direct LAN access and keeps all secrets off GitHub.
+
+---
+
+## 16. Next Steps: Secrets Management
 
 ### Current State
 
