@@ -1,5 +1,5 @@
 ---
-# CI trigger test
+# CI build
 - name: Common Kubernetes prerequisites on all nodes
   hosts: k8s_all
   become: true
