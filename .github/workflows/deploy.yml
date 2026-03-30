@@ -31,5 +31,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose down --volumes --remove-orphans
+          docker compose down --remove-orphans
           sudo rm -rf terraform/proxmox/.terraform

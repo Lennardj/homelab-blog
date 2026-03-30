@@ -9,6 +9,7 @@ services:
     volumes:
       - ./:/work
       - ./artifacts:/artifacts
+      - ${TF_STATE_DIR:-./terraform/proxmox}:/tfstate
     entrypoint: [ "/bin/sh", "/work/docker/terraform/run.sh" ]
 
   ansible:
