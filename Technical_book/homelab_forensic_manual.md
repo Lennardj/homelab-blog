@@ -1777,6 +1777,46 @@ readinessProbe:
 
 ---
 
+## Feature — AlertManager Email Alerts and Prometheus Rules
+
+### What was built
+
+Added custom Prometheus alerting rules and configured AlertManager to send email notifications via Gmail SMTP. Alerts are also visible in Grafana natively.
+
+### Alert rules added to `kubernetes/monitoring/values.yaml`
+
+| Alert | Fires when | Severity |
+|---|---|---|
+| PodCrashLooping | Pod restarts in last 10 min | critical |
+| PodNotReady | Pod not ready for 5 min | warning |
+| DeploymentReplicasMismatch | Desired ≠ ready replicas for 10 min | warning |
+| NodeNotReady | Node down for 2 min | critical |
+| NodeHighMemory | Memory > 85% for 5 min | warning |
+| NodeHighCPU | CPU > 85% for 5 min | warning |
+| NodeDiskPressure | Disk > 85% for 5 min | warning |
+
+### How it works
+
+The rules are defined under `additionalPrometheusRulesMap` in the Helm values file. Helm creates `PrometheusRule` CRDs from these on install. Prometheus evaluates the PromQL expressions on its scrape interval. When a condition holds for the `for` duration, it fires the alert to AlertManager.
+
+AlertManager groups alerts by `alertname` and `namespace`, waits 30s to batch, then sends to the email receiver. `send_resolved: true` sends a follow-up email when the alert clears.
+
+### Email configuration
+
+- SMTP: Gmail (`smtp.gmail.com:587`) with a Gmail App Password
+- `smtp_auth_password` is not stored in `values.yaml` — Ansible injects it via `--set alertmanager.config.global.smtp_auth_password={{ lookup('env', 'ALERTMANAGER_SMTP_PASSWORD') }}`
+- Same pattern as `GRAFANA_ADMIN_PASSWORD` — secret in `.env`, injected at deploy time, never in Git
+
+### Grafana integration
+
+No extra configuration needed. Grafana's built-in Prometheus data source automatically discovers all firing alerts. Navigate to **Alerting → Alert rules** in Grafana to see them.
+
+### Interview talking point
+
+AlertManager is the notification engine — Prometheus evaluates the rules and fires to AlertManager, which handles grouping, deduplication, silencing, and routing. This separation means you can change who gets notified (email, Slack, PagerDuty) without touching the alert rules themselves. The `for` duration prevents flapping — a brief CPU spike won't fire an alert, only sustained conditions. The `group_wait` and `group_interval` settings batch related alerts into a single email instead of spamming one per pod.
+
+---
+
 ## Feature — GitHub Actions CI/CD (Self-Hosted Runner)
 
 ### What was built

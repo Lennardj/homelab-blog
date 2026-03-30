@@ -253,8 +253,24 @@ Browser → Cloudflare DNS → Cloudflare Edge
 **kube-prometheus-stack (Helm)**
 - Prometheus: 5Gi storage
 - Grafana: 2Gi storage, admin password from `GRAFANA_ADMIN_PASSWORD` (.env)
-- AlertManager: 2Gi storage
+- AlertManager: 2Gi storage, email alerts via Gmail SMTP
 - Grafana ingress: `grafana.lennardjohn.org`
+
+**AlertManager — Alert Rules**
+
+| Alert | Condition | Severity |
+|---|---|---|
+| PodCrashLooping | Pod restarting in last 10 min | critical |
+| PodNotReady | Pod not ready for 5 min | warning |
+| DeploymentReplicasMismatch | Desired ≠ ready replicas for 10 min | warning |
+| NodeNotReady | Node down for 2 min | critical |
+| NodeHighMemory | Memory > 85% for 5 min | warning |
+| NodeHighCPU | CPU > 85% for 5 min | warning |
+| NodeDiskPressure | Disk > 85% for 5 min | warning |
+
+**Notification channels:**
+- Email to `lennardvincentjohn@gmail.com` via Gmail SMTP (app password in `.env` as `ALERTMANAGER_SMTP_PASSWORD`, injected by Ansible via `--set`)
+- Grafana UI — reads all Prometheus alerts natively, no extra config needed
 
 ---
 
@@ -334,6 +350,7 @@ Managed by `terraform_data.tunnel_config` in `cloudflare.tf` via PUT to Cloudfla
 | MariaDB root password | `.env` → `MARIADB_ROOT_PASSWORD` | Ansible → K8s secret |
 | MariaDB app password | `.env` → `MARIADB_PASSWORD` | Ansible → K8s secret |
 | Grafana admin password | `.env` → `GRAFANA_ADMIN_PASSWORD` | Ansible → Helm `--set` |
+| AlertManager SMTP password | `.env` → `ALERTMANAGER_SMTP_PASSWORD` | Ansible → Helm `--set` |
 | Cloudflare tunnel token | Terraform output → `output.json` | Ansible → K8s secret |
 
 All secrets are git-ignored. Nothing sensitive is committed to the repo.
@@ -361,6 +378,7 @@ TF_VAR_domain_name=lennardjohn.org
 MARIADB_ROOT_PASSWORD=change-me-root
 MARIADB_PASSWORD=change-me-app
 GRAFANA_ADMIN_PASSWORD=change-me-grafana
+ALERTMANAGER_SMTP_PASSWORD=<gmail-app-password>
 TF_VAR_cloudinit_password=change-me-vms
 
 # Networking
@@ -576,6 +594,7 @@ git push (terraform/ or ansible/ change)
 | Property | Value |
 |---|---|
 | Name | runner-01 |
+| IP | 192.168.1.73 |
 | Hosted on | Proxmox (permanent VM, not Terraform-managed) |
 | Labels | `self-hosted`, `Linux`, `X64` |
 | Work dir | `~/actions-runner/_work/` |
@@ -587,10 +606,15 @@ The runner replaces the developer's laptop as the machine that runs `docker comp
 
 | File | Location | Purpose |
 |---|---|---|
-| `.env` | `/home/runner/.env` | All pipeline credentials |
+| `.env` | `/home/lennard/.env` | All pipeline credentials |
 | SSH private key | `~/.ssh/id_ed25519` | Ansible SSH auth to K8s nodes |
 
-**Key difference from laptop:** `SSH_KEY_DIR=/home/runner/.ssh` (Linux path, not Windows).
+**Key difference from laptop:** `SSH_KEY_DIR=/home/lennard/.ssh` (Linux path, not Windows).
+
+**Syncing `.env` from laptop to runner VM:**
+```powershell
+.\scripts\sync-env.ps1
+```
 
 ### Workflow File
 
