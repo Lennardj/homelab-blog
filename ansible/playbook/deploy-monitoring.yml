@@ -39,6 +39,7 @@
         --namespace monitoring
         --values /tmp/monitoring/values.yaml
         --set grafana.adminPassword={{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}
+        --set alertmanager.config.global.smtp_auth_password={{ lookup('env', 'ALERTMANAGER_SMTP_PASSWORD') }}
       register: helm_install_stack
       retries: 20
       delay: 30
