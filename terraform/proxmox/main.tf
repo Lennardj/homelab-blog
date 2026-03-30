@@ -7,10 +7,11 @@
 # Control Plane VM
 # -----------------------------
 resource "proxmox_vm_qemu" "k8s_control_plane" {
-  name        = "k8s-master-01"
-  target_node = var.target_node
-  vmid        = 150
-  description = "Master node for the kubernetes cluster"
+  name         = "k8s-master-01"
+  target_node  = var.target_node
+  vmid         = 150
+  force_create = true
+  description  = "Master node for the kubernetes cluster"
 
   # Cloud init template
   clone      = var.vm_template
@@ -65,11 +66,12 @@ resource "proxmox_vm_qemu" "k8s_control_plane" {
 # Worker Nodes
 # -----------------------------
 resource "proxmox_vm_qemu" "k8s_workers" {
-  for_each    = { for i in range(var.k8s_workers.count) : i => i }
-  name        = "k8s-worker-${each.key + 1}"
-  target_node = var.target_node
-  vmid        = 200 + each.key
-  description = "Worker nodes node for the kubernetes cluster"
+  for_each     = { for i in range(var.k8s_workers.count) : i => i }
+  name         = "k8s-worker-${each.key + 1}"
+  target_node  = var.target_node
+  vmid         = 200 + each.key
+  force_create = true
+  description  = "Worker nodes node for the kubernetes cluster"
 
 
   clone      = var.vm_template
