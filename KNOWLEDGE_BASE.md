@@ -93,7 +93,7 @@ docker-compose up
     │       ├─ Proxmox: Creates k8s-worker-1 (VM 200)
     │       ├─ Proxmox: Creates k8s-worker-2 (VM 201)
     │       ├─ Cloudflare: Creates Zero Trust tunnel
-    │       └─ Cloudflare: Creates DNS CNAMEs (blog, grafana)
+    │       └─ Cloudflare: Creates DNS CNAMEs (blog, grafana, argocd, @ root)
     │     SSH poll each VM until port 22 responds
     │     terraform output -json > /artifacts/output.json
     │
@@ -105,11 +105,12 @@ docker-compose up
                  1. playbook.yml             → K8s prerequisites + kubeadm init + calico
                  2. cluster-services.yml     → NGINX ingress + storage + metrics server
                  3. cluster-networking.yml   → MetalLB + patch ingress to LoadBalancer
-                 4. deploy-cert-manager.yml  → cert-manager + ClusterIssuer
+                 4. deploy-cert-manager.yml  → cert-manager + ClusterIssuer (prod + staging)
                  5. deploy-argocd.yml        → Argo CD via Helm + ingress
                  6. deploy-monitoring.yml    → Helm: Prometheus + Grafana + registers Argo CD app
                  7. deploy-wordpress.yml     → WordPress + MariaDB + secrets + registers Argo CD app
                  8. deploy-cloudflared.yml   → cloudflared pod + tunnel token secret + registers Argo CD app
+                 9. deploy-landing.yml       → landing page nginx pod + registers Argo CD app
 ```
 
 **Total deployment time:** ~20-30 minutes
@@ -173,6 +174,7 @@ VM IPs (`192.168.1.70–.72`) and `INGRESS_IP` do not change — they are LAN ad
 ### DNS (Cloudflare-managed)
 
 ```
+lennardjohn.org         → CNAME @ → <tunnel-id>.cfargotunnel.com (proxied) — landing page
 blog.lennardjohn.org    → CNAME → <tunnel-id>.cfargotunnel.com (proxied)
 grafana.lennardjohn.org → CNAME → <tunnel-id>.cfargotunnel.com (proxied)
 argocd.lennardjohn.org  → CNAME → <tunnel-id>.cfargotunnel.com (proxied)
@@ -185,6 +187,7 @@ Browser → Cloudflare DNS → Cloudflare Edge
     → Cloudflare Tunnel → cloudflared pod (cloudflared namespace)
     → ingress-nginx-controller.ingress-nginx.svc.cluster.local
     → NGINX Ingress rules:
+        lennardjohn.org         → landing:80      (landing namespace)
         blog.lennardjohn.org    → wordpress:80    (wordpress namespace)
         grafana.lennardjohn.org → grafana:80      (monitoring namespace)
         argocd.lennardjohn.org  → argocd-server:80 (argocd namespace)
@@ -207,6 +210,7 @@ Browser → Cloudflare DNS → Cloudflare Edge
 | `monitoring` | Prometheus, Grafana, AlertManager |
 | `wordpress` | WordPress, MariaDB, PVCs, Ingress |
 | `cloudflared` | cloudflared tunnel agent |
+| `landing` | Personal portfolio landing page (nginx + ConfigMap HTML) |
 
 ### wordpress namespace
 
@@ -441,6 +445,7 @@ kubectl get pods -A
 ```
 
 ### Access
+- Landing: https://lennardjohn.org
 - Blog: https://blog.lennardjohn.org
 - Grafana: https://grafana.lennardjohn.org (admin / GRAFANA_ADMIN_PASSWORD)
 - Argo CD: https://argocd.lennardjohn.org (admin / retrieve with `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d`)

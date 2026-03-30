@@ -404,6 +404,42 @@ It is intended as:
 
 ---
 
+### Feature: Landing Page — lennardjohn.org
+
+**Date:** 2026-03-30
+
+**What was built:** A personal portfolio landing page served at `lennardjohn.org` (root domain). Dark terminal-style design with green accents, nginx serving static HTML from a Kubernetes ConfigMap.
+
+**Architecture:**
+```
+kubernetes/landing/
+  namespace.yaml      # landing namespace
+  configmap.yaml      # index.html (full HTML/CSS, no external build step)
+  deployment.yaml     # nginx:alpine, mounts ConfigMap as /usr/share/nginx/html
+  ingress.yaml        # lennardjohn.org, letsencrypt-staging
+  kustomization.yaml  # lists all resources (no secrets)
+
+kubernetes/argocd/apps/landing.yaml   # Argo CD Application CR
+ansible/playbook/deploy-landing.yml   # 9th playbook in pipeline
+```
+
+**Why ConfigMap for HTML:** The HTML lives in Git. No Docker image build, no registry. Updating the page = edit `configmap.yaml` → `git push` → Argo CD applies the ConfigMap update → nginx serves new content automatically. Pure GitOps with zero infrastructure overhead for a static page.
+
+**Cloudflare changes:**
+- Added `cloudflare_dns_record.landing` with `name = "@"` (root domain CNAME flattening)
+- Added `lennardjohn.org` as first entry in tunnel ingress rules
+
+**Page sections:**
+1. Name + blinking cursor + role
+2. Bio — stack description
+3. `// homelab` — Blog, Grafana, Argo CD service links
+4. `// find me` — YouTube, GitHub, LinkedIn, Dev.to icon links (Font Awesome CDN)
+5. Stack tags — Kubernetes, Terraform, Ansible, Argo CD, Prometheus, Cloudflare, Docker, Linux
+
+**Interview talking point:** Serving a static site from a Kubernetes ConfigMap is intentionally over-engineered for a homelab — but it demonstrates that even trivial workloads benefit from GitOps. Any change to the landing page goes through the same pipeline as a production deployment: code review, git history, automated reconciliation. The operational model is identical whether you're deploying a static HTML page or a stateful database cluster.
+
+---
+
 ### Incident #18 — Nginx ssl-redirect Loop Through Cloudflare Tunnel
 
 **Date:** 2026-03-30
