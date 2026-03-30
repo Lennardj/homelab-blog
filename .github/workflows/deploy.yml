@@ -16,6 +16,9 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
 
     steps:
+      - name: Clean root-owned files from previous runs
+        run: sudo rm -rf $GITHUB_WORKSPACE/.terraform || true
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -27,4 +30,6 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: |
+          docker compose down --volumes --remove-orphans
+          sudo rm -rf terraform/proxmox/.terraform
