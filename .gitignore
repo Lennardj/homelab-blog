@@ -6,4 +6,7 @@ command_output.txt
 CLAUDE.md
 Technical_book/chat*.md
 Technical_book/Task*.md
-
+.claude
+.claude\hooks
+.claude\hooks\block_env.py
+.claude\settings.local.json
