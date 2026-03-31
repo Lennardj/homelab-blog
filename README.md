@@ -1,5 +1,5 @@
 # Homelab Blog Platform
-![iinfra]("./infra.png")
+![infra](infra.png)
 This is **not a blog project**.
 
 It's a **self-hosted Platform-as-a-Service (PaaS)** that:
