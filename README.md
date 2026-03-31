@@ -1,114 +1,66 @@
 # Homelab Blog Platform
-![infra diagram](./infra.png)
+![iinfra]("./infra.png")
+This is **not a blog project**.
 
-This repository contains a **self-hosted, production-style platform** built on **Proxmox, Kubernetes, and Cloudflare Zero Trust**.
+It's a **self-hosted Platform-as-a-Service (PaaS)** that:
+- Provisions infrastructure
+- Bootstraps Kubernetes
+- Deploys applications
+- Manages everything through Git
 
-It automates the full lifecycle of:
-- Infrastructure provisioning  
-- Kubernetes cluster bootstrap  
-- Platform services deployment  
-- Application delivery (**WordPress + MariaDB**)
+All from a single command:
 
-> Designed to demonstrate **DevOps, Platform Engineering, and Solution Architecture principles** on homelab infrastructure.
-
----
-
-## 🏗️ Architecture Diagram
-
-```mermaid
-flowchart TB
-
-User["User Browser"]
-Cloudflare["Cloudflare Tunnel + Zero Trust"]
-DNS["DNS / Domain"]
-
-MetalLB["MetalLB LoadBalancer"]
-Ingress["NGINX Ingress Controller"]
-
-WordPress["WordPress"]
-Database["MariaDB"]
-
-subgraph Kubernetes Cluster
-    KubeAPI["Kubernetes API"]
-    Calico["Calico CNI"]
-    Storage["Local Path Provisioner"]
-    Metrics["Metrics Server"]
-    Prometheus["Prometheus"]
-    Grafana["Grafana"]
-end
-
-subgraph Automation
-    Terraform["Terraform"]
-    Ansible["Ansible"]
-end
-
-subgraph Infrastructure
-    Proxmox["Proxmox Hypervisor"]
-    VMs["Kubernetes VMs"]
-    CloudInit["Cloud-init Templates"]
-end
-
-User --> DNS
-DNS --> Cloudflare
-Cloudflare --> MetalLB
-MetalLB --> Ingress
-Ingress --> WordPress
-WordPress --> Database
-
-WordPress --> KubeAPI
-Prometheus --> KubeAPI
-Grafana --> Prometheus
-
-Terraform --> Proxmox
-Proxmox --> VMs
-CloudInit --> VMs
-Ansible --> VMs
-Ansible --> KubeAPI
-
-VMs --> KubeAPI
-KubeAPI --> Calico
-KubeAPI --> Storage
-KubeAPI --> Metrics
+```bash
+docker compose up
 ```
 
-### Infrastructure Pipeline
+**Live:** [lennardjohn.org](https://lennardjohn.org) | [blog](https://blog.lennardjohn.org) | [grafana](https://grafana.lennardjohn.org) | [argocd](https://argocd.lennardjohn.org)
 
 ---
 
-## ⚙️ Key Features
+## Full Deployment Pipeline
 
-### ☸️ Kubernetes Platform
-- 3-node Kubernetes cluster (kubeadm)
-- Automated cluster bootstrap using Ansible
-- Calico CNI networking
-- Local Path Provisioner for storage
+```text
+docker compose up
+    │
+    ├── Terraform
+    │     → Proxmox: creates 3 VMs (1 master + 2 workers)
+    │     → Cloudflare: tunnel + DNS records (blog, grafana, argocd, landing)
+    │
+    └── Ansible (9 playbooks, in order)
+          → K8s bootstrap (kubeadm + Calico CNI)
+          → Platform services (NGINX Ingress, MetalLB, Local Path, Metrics Server)
+          → cert-manager + Let's Encrypt (automated TLS)
+          → Argo CD (GitOps)
+          → Prometheus + Grafana + AlertManager (monitoring + email alerts)
+          → WordPress + MariaDB (the blog)
+          → Cloudflare Tunnel agent
+          → Landing page (lennardjohn.org)
 
----
-
-### 🌐 Networking & Access
-- NGINX Ingress Controller
-- MetalLB for bare-metal LoadBalancer support
-- Cloudflare Tunnel + Zero Trust access
-
----
-
-### 📊 Observability
-- Prometheus + Grafana monitoring stack
-- Metrics Server for cluster metrics
-
----
-
-### 🧩 Application Layer
-- WordPress deployed on Kubernetes
-- MariaDB database with persistent storage
-- Ingress-based routing
+After deployment:
+    kubernetes/ change → Argo CD auto-syncs (no CI needed)
+    terraform/ or ansible/ change → GitHub Actions → self-hosted runner → full rebuild
+```
 
 ---
 
-### ⚡ Infrastructure as Code
-- Terraform (Proxmox)
-- Dynamic VM provisioning via variables
-- Cloud-init templates for rapid deployment
+## Stack
+
+| Layer | Tools |
+|---|---|
+| Hypervisor | Proxmox VE (3 VMs: 1 master + 2 workers) |
+| Provisioning | Terraform (Proxmox + Cloudflare providers) |
+| Configuration | Ansible (9 sequential playbooks) |
+| Orchestration | Kubernetes v1.30 (kubeadm) |
+| Networking | Calico CNI, MetalLB, NGINX Ingress |
+| Storage | Local Path Provisioner |
+| TLS | cert-manager + Let's Encrypt (DNS-01 via Cloudflare) |
+| Applications | WordPress + MariaDB, Landing Page |
+| Monitoring | Prometheus, Grafana, AlertManager (7 rules, email alerts) |
+| GitOps | Argo CD (auto-syncs `kubernetes/` on every push) |
+| Access | Cloudflare Tunnel (zero-trust, no port forwarding) |
+| CI/CD | GitHub Actions (self-hosted runner on Proxmox) |
+| Security | NetworkPolicy (MariaDB restricted to WordPress only) |
 
 ---
 
