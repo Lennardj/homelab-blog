@@ -1,6 +1,9 @@
 # Homelab Blog Platform
 ![infra](infra.png)
-This is **not a blog project**.
+
+I just wanted to write a blog.
+
+So I built a **production-style platform** from scratch.
 
 It's a **self-hosted Platform-as-a-Service (PaaS)** that:
 - Provisions infrastructure
@@ -41,6 +44,7 @@ After deployment:
     kubernetes/ change → Argo CD auto-syncs (no CI needed)
     terraform/ or ansible/ change → GitHub Actions → self-hosted runner → full rebuild
 ```
+No manual steps. No SSH required after bootstrap.
 
 ---
 
@@ -64,125 +68,96 @@ After deployment:
 
 ---
 
-## 🔁 Resilient Deployment Design (Core Feature)
+## Key Engineering Decisions
 
-This platform is designed to **avoid fragile timing assumptions** commonly found in automation.
+Git as the source of truth
+→ No SSH after bootstrap. All changes flow through Git.
+Resilient over deterministic
+→ No fixed delays — retry loops and readiness checks ensure convergence.
+GitOps for day-2 operations
+→ Argo CD continuously reconciles cluster state from Git.
+TCP probes instead of HTTP
+→ Avoids false failures during WordPress initialisation.
+Recreate deployment strategy
+→ Prevents PVC deadlocks with ReadWriteOnce volumes.
+Zero-trust exposure
+→ No open ports — all traffic flows through Cloudflare Tunnel.
+DNS-01 TLS challenges
+→ Works without direct inbound HTTP access.
+Self-hosted CI runner
+→ Secure, LAN-accessible, keeps secrets off GitHub.
+Persistent Terraform state in CI
+→ Prevents resource duplication and Cloudflare conflicts.
+NetworkPolicy enforcement
+→ Database only accessible by WordPress (defence-in-depth).
+Reproducibility
+→ This entire platform can be: Destroyed, Rebuilt and Migrated Using the same codebase.
 
-Instead of relying on fixed waits, it uses:
 
-- Retry-based execution (`retries`, `delay`, `until`)
-- Progressive readiness checks (pods exist → stabilise → proceed)
-- Idempotent operations (`kubectl apply`, `helm upgrade --install`)
-- Recovery-safe Kubernetes bootstrap (`kubeadm reset + retry`)
-
-> The system is designed to **converge to a working state**, even on slow or constrained hardware.
 
 ---
 
-## 🏗️ Folder Structure
+## Project Structure
+
 ```
 homelab-blog/
-├── terraform/    # Proxmox & Cloudflare infrastructure
-├── ansible/      # Kubernetes bootstrap & platform deployment
-├── kubernetes/   # Manifests (WordPress, Monitoring, MetalLB)
-└── scripts/      # Helper scripts (inventory build, local deploy)
+├── terraform/proxmox/       # VMs, Cloudflare tunnel, DNS records
+├── ansible/playbook/        # 9 playbooks: bootstrap through app deploy
+├── kubernetes/              # Argo CD syncs this directory
+│   ├── wordpress/           # WordPress + MariaDB + NetworkPolicy
+│   ├── monitoring/          # Prometheus, Grafana, AlertManager rules
+│   ├── argocd/              # Argo CD + Application CRs
+│   ├── cloudflared/         # Cloudflare tunnel agent
+│   ├── landing/             # Landing page (nginx + ConfigMap)
+│   ├── cert-manager/        # ClusterIssuers (prod + staging)
+│   └── metallb/             # IP address pool
+├── docker/                  # Dockerfiles for terraform + ansible containers
+├── scripts/                 # build_inventory.py, sync-env.ps1, teardown.ps1
+├── .github/workflows/       # CI/CD pipeline (deploy.yml)
+├── docker-compose.yaml      # Orchestrates the full pipeline
+└── .env                     # All credentials (git-ignored)
 ```
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
-1. **Configure credentials**
-   - Copy `.env.example` to `.env` and fill in Proxmox API credentials and SSH key path
+**Prerequisites:** Docker, Proxmox host with Ubuntu 24.04 cloud-init template, Cloudflare account with domain, SSH key at `~/.ssh/id_ed25519`
 
-2. **Run the pipeline**
-   ```bash
-   docker-compose up
-   ```
-   This will automatically:
-   - Provision Proxmox VMs via Terraform (outputs IPs to `artifacts/output.json`)
-   - Build the Ansible inventory from Terraform output
-   - Bootstrap the Kubernetes cluster
-   - Install platform services (Ingress, Storage, MetalLB, Monitoring)
-   - Deploy WordPress + MariaDB
+```bash
+git clone https://github.com/Lennardj/homelab-blog.git
+cd homelab-blog
+cp .env.example .env    # fill in all values
+docker compose up
+```
 
-3. **Configure Cloudflare**
-   - Set up Cloudflare Tunnel + Zero Trust manually to expose the cluster ingress
-
-4. Access your blog via:
-    [Lennardjohn.org](https://lennardjohn.org/)
+That's it. ~25 minutes the full platform is live.
 
 ---
 
-## 🧪 Lessons Learned
+## Future Improvements
 
-### ❌ What doesn’t work
-- Fixed timeouts (`kubectl wait`)
-- Sequential scripts with no retries
-- Assuming immediate readiness
-
-### ✅ What works
-- Eventual consistency
-- Retry + backoff strategies
-- Layered system design
-- Partial readiness checks
+- Multi-cluster deployment (Talos / hybrid cloud)
+- Secrets management (SOPS / Vault / OpenBao)
+- Progressive delivery (Argo Rollouts)
+- Multi-environment (dev / staging / prod)
 
 ---
 
-## 🎯 Why This Project Matters
+## Known Issues & Incident Log
 
-This project demonstrates:
+22 incidents documented and resolved — from Terraform provider quirks to Kubernetes probe failures to CI/CD permission issues.
 
-- Real-world DevOps practices  
-- Platform engineering design patterns  
-- Distributed system behaviour  
-- Resilient automation on constrained infrastructure  
+- [Terraform + Proxmox Gotchas](terraform/proxmox/terraform-proxmox-gotchas.md)
+- [Full Incident Log & Forensic Manual](Technical_book/homelab_forensic_manual.md)
 
 ---
 
-## 🔮 Future Improvements
+## Author
 
-- Multi-cluster deployment (Talos / cloud failover)
-- CI/CD pipeline (GitHub Actions)
-- Automate Cloudflare Tunnel provisioning via Terraform
-- External database management
-- Full Cloudflare Zero Trust integration for all services
+**Lennard John** — Platform Engineer
 
----
-
-## ⚠️ Known Gotchas (Terraform + Proxmox)
-
-This project includes a curated reference of non-obvious pitfalls:
-
-👉 [`terraform-proxmox-gotchas.md`](terraform/proxmox/terraform-proxmox-gotchas.md)
-
-Topics include:
-- Proxmox API token permissions
-- Disk cloning and template sizing pitfalls
-- Cloud-init quirks
-- Terraform provider limitations
-
----
-
-## 👤 Author
-
-**Lennard John**
-
-- DevOps / Platform Engineering journey  
-- Head of Digital Technology (NZ)  
-- Building real-world systems on homelab infrastructure  
-
----
-
-## 💬 Design Insight
-
-This platform was designed to be **resilient rather than deterministic**.
-
-Instead of relying on fixed timing assumptions (e.g. `kubectl wait`), the system uses:
-- Retry-based execution
-- Progressive readiness checks
-- Idempotent operations
-
-This allows the platform to **converge to a working state**, even on slow or resource-constrained infrastructure.
-
----
+- [YouTube](https://www.youtube.com/@mrjohnhomelab)
+- [GitHub](https://github.com/Lennardj)
+- [LinkedIn](https://www.linkedin.com/in/lennardjohn/)
+- [Dev.to](https://dev.to/lennardj)

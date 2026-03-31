@@ -8,7 +8,6 @@ Technical_book/chat*.md
 Technical_book/Task*.md
 Technical_book\job.md
 Technical_book\video_outline.md
-Technical_book\homelab_forensic_manual.md
 .claude
 .claude\hooks
 .claude\hooks\block_env.py
