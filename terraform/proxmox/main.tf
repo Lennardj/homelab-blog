@@ -1,6 +1,7 @@
 ############################################################
 # Proxmox Kubernetes Cluster - Terraform Main
 # 3 nodes: 1 Control Plane + N Workers
+# CI/CD: deployed via GitHub Actions self-hosted runner
 ############################################################
 
 # -----------------------------
