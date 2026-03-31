@@ -237,6 +237,11 @@ Browser → Cloudflare DNS → Cloudflare Edge
 - `mariadb-database`: wordpress
 - `mariadb-user`: wordpress
 
+**NetworkPolicy: mariadb-allow-wordpress-only**
+- Restricts all ingress to the MariaDB pod to only the WordPress pod on TCP 3306
+- No other pod, namespace, or service can reach MariaDB
+- Enforced at the Kubernetes network level (Calico CNI), not at the database layer
+
 ### cloudflared namespace
 
 **cloudflared**
@@ -516,6 +521,7 @@ Each Application CR is applied at the END of its respective playbook — after s
 - `deploy-monitoring.yml` → applies `apps/monitoring.yaml`
 - `deploy-wordpress.yml` → applies `apps/wordpress.yaml`
 - `deploy-cloudflared.yml` → applies `apps/cloudflared.yaml`
+- `deploy-landing.yml` → applies `apps/landing.yaml`
 
 This prevents Argo CD from syncing before secrets exist (which would cause pod crashloops).
 
@@ -584,7 +590,7 @@ git push (terraform/ or ansible/ change)
   → runner-01 runs docker compose up
       → terraform container → provisions VMs
       → ansible container  → deploys K8s
-  → Cleanup: docker compose down --volumes
+  → Cleanup: docker compose down, prune images, rm .terraform
 ```
 
 `kubernetes/` changes do NOT trigger this workflow — Argo CD handles those via GitOps.
@@ -621,13 +627,41 @@ The runner replaces the developer's laptop as the machine that runs `docker comp
 `.github/workflows/deploy.yml` — triggers on push to `main` when `terraform/**` or `ansible/**` paths change.
 
 ```yaml
+- Clean root-owned .terraform files (sudo rm -rf)
 - Checkout repo into _work/
-- Copy /home/runner/.env → .env
-- docker compose up
-- docker compose down --volumes --remove-orphans  (always, even on failure)
+- Copy /home/lennard/.env → .env
+- docker compose up  (TF_STATE_DIR=/home/lennard/.terraform-state)
+- Cleanup (always, even on failure):
+    - docker compose down --remove-orphans
+    - sudo rm -rf terraform/proxmox/.terraform
+    - docker system prune --all --force --volumes
 ```
 
 `concurrency: group: deploy` — prevents two deploys running at the same time if pushes happen in quick succession.
+
+### Terraform State Persistence
+
+Without state persistence, every CI run treats Cloudflare DNS records and tunnels as new resources and fails with `already exists` errors (Cloudflare has no `force_create`).
+
+- State is stored on the runner VM at `/home/lennard/.terraform-state/terraform.tfstate`
+- `TF_STATE_DIR` is set in the workflow `env:` block (not in `.env` — would break Windows laptop)
+- `docker-compose.yaml` mounts `${TF_STATE_DIR:-./terraform/proxmox}:/tfstate` — bind mount, not a Docker volume, so `docker system prune --volumes` doesn't touch it
+- `docker/terraform/run.sh` copies state in before `terraform init` and copies it out after `terraform apply`
+- On the laptop (no `TF_STATE_DIR` set), the default `./terraform/proxmox` maps `/tfstate` to the same directory Terraform runs in — `run.sh` skips the copy using `-ef` (same-file check)
+
+### Proxmox `force_create`
+
+`force_create = true` on all VM resources in `main.tf`. Without state, Terraform tries to create VMs with IDs 150, 200, 201 — if they already exist on Proxmox, `force_create` destroys and recreates them. This is safe because the full pipeline provisions VMs from scratch every time.
+
+### CI Fixes Applied
+
+| Issue | Root Cause | Fix |
+|---|---|---|
+| `git clean` permission denied on `.terraform/` | Docker creates provider files as root, runner runs as `lennard` | Pre-checkout step: `sudo rm -rf $GITHUB_WORKSPACE/.terraform`; post-cleanup: `sudo rm -rf terraform/proxmox/.terraform` |
+| `sudo: a password is required` in workflow | Runner user `lennard` in `sudo` group, `%sudo` rule overrides `NOPASSWD` line | Drop-in file: `/etc/sudoers.d/lennard` with `NOPASSWD: ALL` |
+| Cloudflare DNS `already exists` | No `terraform.tfstate` between runs — Terraform tries to CREATE instead of manage | Persist state on runner VM as bind mount; `run.sh` copies state in/out |
+| `cp: same file` error in `run.sh` | On laptop, `TF_STATE_DIR` defaults to `./terraform/proxmox` — source and dest are the same path | Guard with `! [ /tfstate/terraform.tfstate -ef terraform.tfstate ]` before copying |
+| Workflow re-run uses old commit | GitHub re-runs use the triggering commit, not latest | Push a new trigger commit instead of re-running |
 
 ### Why Self-Hosted (not GitHub-hosted)
 

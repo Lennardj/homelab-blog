@@ -1834,19 +1834,25 @@ GitHub-hosted runners are ephemeral cloud VMs. They have no access to the home L
 ### Key design decisions
 
 **Secrets stay on the runner VM, not in GitHub.**
-`.env` is stored at `/home/runner/.env` on the runner VM. The workflow copies it into the checked-out repo directory at the start of each job. GitHub never receives secret values.
+`.env` is stored at `/home/lennard/.env` on the runner VM (IP: 192.168.1.73). The workflow copies it into the checked-out repo directory at the start of each job. GitHub never receives secret values.
 
 **Runner is a permanent VM, not Terraform-managed.**
 The K8s VMs (master + workers) are torn down and recreated by Terraform. The runner VM must survive `terraform destroy` — so it is created manually in Proxmox and never referenced in Terraform code.
 
 **`SSH_KEY_DIR` path changes from Windows to Linux.**
 On the laptop: `SSH_KEY_DIR=C:/Users/User/.ssh`
-On the runner VM: `SSH_KEY_DIR=/home/runner/.ssh`
+On the runner VM: `SSH_KEY_DIR=/home/lennard/.ssh`
 This is the only `.env` change needed to move from laptop to CI.
+
+**`TF_STATE_DIR` is set in the workflow, not in `.env`.**
+If `TF_STATE_DIR` were in `.env`, the synced `.env` would contain a Linux path that breaks the laptop. Instead, the workflow sets `TF_STATE_DIR=/home/lennard/.terraform-state` as an environment variable on the `docker compose up` step only. On the laptop, the default `./terraform/proxmox` kicks in — same dir as the working directory, so no copy happens.
 
 **`concurrency: group: deploy`** prevents two workflow runs executing at the same time if commits are pushed in quick succession. The second run queues rather than cancelling.
 
-**Cleanup runs on `if: always()`** — even if Terraform or Ansible fails. This ensures the `/artifacts` Docker volume (which holds `output.json`) is removed after every run. Without this, a stale `output.json` from a failed run could trick the next run's Ansible container into skipping the Terraform wait.
+**Cleanup runs on `if: always()`** — even if Terraform or Ansible fails. Includes:
+- `docker compose down --remove-orphans` — stops and removes containers
+- `sudo rm -rf terraform/proxmox/.terraform` — removes root-owned provider files
+- `docker system prune --all --force --volumes` — removes images to prevent disk bloat (bind mounts like `/home/lennard/.terraform-state/` are not Docker volumes, so they are safe from prune)
 
 ### Runner as systemd service
 
@@ -1858,9 +1864,133 @@ sudo ./svc.sh start
 
 Registers the runner as a systemd service. Starts automatically on boot — no need to manually run `./run.sh`.
 
+### Syncing `.env` from laptop to runner VM
+
+```powershell
+.\scripts\sync-env.ps1
+```
+
+Runs `scp .env lennard@192.168.1.73:/home/lennard/.env`. Run manually after any `.env` change — not automated, because syncing secrets on a schedule is a security risk.
+
 ### Interview talking point
 
 A self-hosted runner is the correct choice when your pipeline needs access to private infrastructure. It trades the convenience of GitHub-hosted runners (zero maintenance, fresh environment every run) for network locality and secret isolation. The runner VM is the only machine that holds credentials — rotate `.env` on the VM and the next CI run picks up the new values automatically.
+
+---
+
+## Incident #19 — CI: Root-owned `.terraform/` blocks GitHub Actions checkout
+
+**Symptom:** Workflow fails at checkout step with `Error: EACCES: permission denied, rmdir '.terraform/providers'`.
+
+**Root cause:** Docker Compose runs the Terraform container as root. Terraform downloads providers into `.terraform/providers/` — these files are owned by `root:root`. The GitHub Actions checkout step runs `git clean -ffdx` to reset the workspace, but the runner runs as `lennard` and can't delete root-owned files.
+
+**Fix:** Added pre-checkout step `sudo rm -rf $GITHUB_WORKSPACE/.terraform` and post-cleanup `sudo rm -rf terraform/proxmox/.terraform` to the workflow. Requires passwordless `sudo` on the runner VM.
+
+**Interview talking point:** Container filesystem ownership mismatch is common in CI/CD. Docker containers default to root unless a `USER` directive is specified. When containers write to bind-mounted host directories, the files inherit root ownership — causing permission issues for the non-root CI agent. The fix is either: set a matching UID in the container, or clean with `sudo` in the CI workflow.
+
+---
+
+## Incident #20 — CI: `sudo: a password is required` in workflow
+
+**Symptom:** Pre-checkout `sudo rm -rf` fails with `sudo: a terminal is required to read the password`.
+
+**Root cause:** The `lennard` user had `NOPASSWD: ALL` in `/etc/sudoers`, but the `%sudo` group rule appeared after it. Since `lennard` is in the `sudo` group, the group rule overrode the user-specific `NOPASSWD` line — sudoers rules are evaluated in order and the last match wins.
+
+**Fix:** Created a drop-in file `/etc/sudoers.d/lennard` containing `lennard ALL=(ALL) NOPASSWD: ALL`. Drop-in files in `/etc/sudoers.d/` are included via `@includedir` at the very end of the main sudoers file, so they always take final precedence.
+
+**Interview talking point:** Sudoers evaluation is order-sensitive — the last matching rule wins. Group rules (`%sudo`) can override user-specific rules if they appear later. Drop-in files in `/etc/sudoers.d/` are the standard way to add per-user overrides because they are processed last and don't require editing the main file.
+
+---
+
+## Incident #21 — CI: Cloudflare DNS `already exists` on every run
+
+**Symptom:** `400 Bad Request: An A, AAAA, or CNAME record with that host already exists` for all DNS records (blog, grafana, argocd, landing).
+
+**Root cause:** `terraform.tfstate` was not persisted between CI runs. The cleanup step deleted Docker volumes and `git clean` wiped the working directory. Without state, Terraform tried to CREATE every resource on each run. Proxmox has `force_create = true` to handle this, but Cloudflare has no equivalent — attempting to create a duplicate DNS record is a hard error.
+
+**Diagnostic steps:**
+1. Confirmed DNS records existed in Cloudflare dashboard
+2. Confirmed `terraform.tfstate` was absent in the `_work/` directory at job start
+3. Traced deletion to `docker compose down --volumes` + checkout `git clean`
+
+**Fix:** Persistent state via bind mount:
+- Created `/home/lennard/.terraform-state/` on the runner VM
+- `docker-compose.yaml` mounts `${TF_STATE_DIR:-./terraform/proxmox}:/tfstate`
+- `docker/terraform/run.sh` copies state from `/tfstate/` before `terraform init` and back after `terraform apply`
+- `TF_STATE_DIR=/home/lennard/.terraform-state` is set in the workflow `env:` block, not in `.env` (would break Windows laptop)
+- Bind mount survives `docker system prune --volumes` (prune only removes Docker named volumes)
+
+**Interview talking point:** Terraform state is the single source of truth for what Terraform manages. Without it, Terraform treats every run as a greenfield deployment. In production, state is stored in a remote backend (S3, Consul, Terraform Cloud). For a homelab CI setup, a persistent bind mount on the runner VM is a lightweight alternative. The key insight is that state must outlive the CI job — anything inside the container or Docker volume is ephemeral by design.
+
+---
+
+## Incident #22 — CI: `cp: same file` error in Terraform `run.sh`
+
+**Symptom:** `cp: 'terraform.tfstate' and '/tfstate/terraform.tfstate' are the same file` — Terraform container exits with code 1, Ansible times out waiting for `output.json`.
+
+**Root cause:** On the laptop, `TF_STATE_DIR` is not set. The `docker-compose.yaml` default `${TF_STATE_DIR:-./terraform/proxmox}` maps `./terraform/proxmox` to `/tfstate` in the container. But Terraform's working directory is also `/work/terraform/proxmox`. Since the host path is bind-mounted both as `/work/terraform/proxmox` (via `./:/work`) and as `/tfstate`, they point to the same directory. `cp terraform.tfstate /tfstate/terraform.tfstate` attempts to copy a file onto itself.
+
+**Fix:** Added a same-file guard in `run.sh`:
+```sh
+if ! [ /tfstate/terraform.tfstate -ef terraform.tfstate ]; then
+  cp terraform.tfstate /tfstate/terraform.tfstate
+fi
+```
+The `-ef` test checks if two paths refer to the same inode — returns true on the laptop (same dir), false on the runner (separate bind mount).
+
+**Interview talking point:** Bind mounts can create surprising overlaps when the same host directory is mounted at multiple container paths. The `-ef` shell test (POSIX) checks inode identity, not string equality — it correctly handles symlinks, bind mounts, and relative paths. This is a common pattern when a script needs to work across different mount configurations.
+
+---
+
+## Feature — NetworkPolicy: MariaDB isolation
+
+### What was built
+
+A Kubernetes NetworkPolicy (`kubernetes/wordpress/network-policy.yaml`) that restricts all ingress traffic to the MariaDB pod to only the WordPress pod on TCP port 3306.
+
+### Manifest
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mariadb-allow-wordpress-only
+  namespace: wordpress
+spec:
+  podSelector:
+    matchLabels:
+      app: mariadb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: wordpress
+      ports:
+        - protocol: TCP
+          port: 3306
+```
+
+### How it works
+
+- `podSelector.matchLabels.app: mariadb` — targets only MariaDB pods
+- `policyTypes: [Ingress]` — controls inbound traffic (egress is unrestricted)
+- `ingress.from.podSelector.matchLabels.app: wordpress` — allows traffic only from pods with the `app: wordpress` label
+- `ports: TCP/3306` — limits allowed traffic to the MySQL port only
+- Any pod without the `app: wordpress` label in the `wordpress` namespace, or any pod from another namespace, is blocked from reaching MariaDB
+
+### Why this matters
+
+Without NetworkPolicy, any pod in the cluster can connect to MariaDB — including compromised pods in other namespaces. This follows the principle of least privilege: MariaDB only needs to communicate with WordPress, so that's all that's allowed.
+
+### Deployment
+
+Deployed via Argo CD GitOps — pushed to `kubernetes/wordpress/`, Argo CD syncs automatically. No Ansible or CI trigger needed.
+
+### Interview talking point
+
+NetworkPolicy is Kubernetes' built-in firewall at the pod level. By default, all pods can talk to all pods (flat network). NetworkPolicy is an allowlist — once applied to a pod, all traffic not explicitly allowed is denied. This is defence-in-depth: even if an attacker gains code execution in a pod, they can't pivot to the database unless they're running in a pod with the right label in the right namespace. The CNI plugin (Calico, Cilium, etc.) enforces the policy — without a compatible CNI, NetworkPolicy objects are ignored silently.
 
 ---
 
