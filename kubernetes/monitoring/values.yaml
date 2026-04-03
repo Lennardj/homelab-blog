@@ -29,28 +29,28 @@ alertmanager:
           resources:
             requests:
               storage: 2Gi
-  config:
-    global:
-      smtp_from: alertmanager@lennardjohn.org
-      smtp_smarthost: smtp.gmail.com:587
-      smtp_auth_username: lennardvincentjohn@gmail.com
-      smtp_auth_password: INJECTED_BY_ANSIBLE
-      smtp_require_tls: true
-    route:
-      receiver: email
-      group_by: ["alertname", "namespace"]
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 4h
-      routes:
-        - receiver: email
-          matchers:
-            - severity =~ "critical|warning"
-    receivers:
-      - name: email
-        email_configs:
-          - to: lennardvincentjohn@gmail.com
-            send_resolved: true
+  # config:
+  #   global:
+  #     smtp_from: alertmanager@lennardjohn.org
+  #     smtp_smarthost: smtp.gmail.com:587
+  #     smtp_auth_username: lennardvincentjohn@gmail.com
+  #     smtp_auth_password: INJECTED_BY_ANSIBLE
+  #     smtp_require_tls: true
+  #   route:
+  #     receiver: email
+  #     group_by: ["alertname", "namespace"]
+  #     group_wait: 30s
+  #     group_interval: 5m
+  #     repeat_interval: 4h
+  #     routes:
+  #       - receiver: email
+  #         matchers:
+  #           - severity =~ "critical|warning"
+  #   receivers:
+  #     - name: email
+  #       email_configs:
+  #         - to: lennardvincentjohn@gmail.com
+  #           send_resolved: true
 
 additionalPrometheusRulesMap:
   homelab-alerts:
@@ -84,16 +84,16 @@ additionalPrometheusRulesMap:
       #         summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} replica mismatch"
       #         description: "Expected {{ $value }} replicas but not all are ready."
 
-      - name: homelab-node-alerts
-        rules:
-          - alert: NodeNotReady
-            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
-            for: 2m
-            labels:
-              severity: critical
-            annotations:
-              summary: "Node {{ $labels.node }} is not ready"
-              description: "Node has been in NotReady state for more than 2 minutes."
+      # - name: homelab-node-alerts
+      #   rules:
+      #     - alert: NodeNotReady
+      #       expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+      #       for: 2m
+      #       labels:
+      #         severity: critical
+      #       annotations:
+      #         summary: "Node {{ $labels.node }} is not ready"
+      #         description: "Node has been in NotReady state for more than 2 minutes."
 
       #     - alert: NodeHighMemory
       #       expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
