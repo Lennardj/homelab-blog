@@ -84,16 +84,16 @@ additionalPrometheusRulesMap:
       #         summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} replica mismatch"
       #         description: "Expected {{ $value }} replicas but not all are ready."
 
-      # - name: homelab-node-alerts
-      #   rules:
-      #     - alert: NodeNotReady
-      #       expr: kube_node_status_condition{condition="Ready",status="true"} == 0
-      #       for: 2m
-      #       labels:
-      #         severity: critical
-      #       annotations:
-      #         summary: "Node {{ $labels.node }} is not ready"
-      #         description: "Node has been in NotReady state for more than 2 minutes."
+      - name: homelab-node-alerts
+        rules:
+          - alert: NodeNotReady
+            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node {{ $labels.node }} is not ready"
+              description: "Node has been in NotReady state for more than 2 minutes."
 
       #     - alert: NodeHighMemory
       #       expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
@@ -113,11 +113,11 @@ additionalPrometheusRulesMap:
       #         summary: "Node {{ $labels.instance }} CPU usage above 85%"
       #         description: "CPU usage is {{ $value | humanize }}%."
 
-          - alert: NodeDiskPressure
-            expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 85
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "Node {{ $labels.instance }} disk usage above 85%"
-              description: "Disk usage on / is {{ $value | humanize }}%."
+          # - alert: NodeDiskPressure
+          #   expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 85
+          #   for: 5m
+          #   labels:
+          #     severity: warning
+          #   annotations:
+          #     summary: "Node {{ $labels.instance }} disk usage above 85%"
+          #     description: "Disk usage on / is {{ $value | humanize }}%."
