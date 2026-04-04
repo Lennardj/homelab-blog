@@ -1,5 +1,4 @@
 grafana:
-
   persistence:
     enabled: true
     storageClassName: local-path
@@ -29,6 +28,7 @@ alertmanager:
           resources:
             requests:
               storage: 2Gi
+
   config:
     global:
       smtp_from: alertmanager@lennardjohn.org
@@ -36,16 +36,18 @@ alertmanager:
       smtp_auth_username: lennardvincentjohn@gmail.com
       smtp_auth_password: INJECTED_BY_ANSIBLE
       smtp_require_tls: true
+
     route:
       receiver: email
       group_by: ["alertname", "namespace"]
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 4h
+      group_wait: 2m
+      group_interval: 15m
+      repeat_interval: 12h
       routes:
         - receiver: email
           matchers:
-            - severity =~ "critical|warning"
+            - severity = "critical"
+
     receivers:
       - name: email
         email_configs:
@@ -55,69 +57,78 @@ alertmanager:
 additionalPrometheusRulesMap:
   homelab-alerts:
     groups:
+
+      # -------------------------
+      # POD ALERTS (reduced noise)
+      # -------------------------
       - name: homelab-pod-alerts
         rules:
+
           - alert: PodCrashLooping
-            expr: rate(kube_pod_container_status_restarts_total[10m]) * 60 * 5 > 0
-            for: 5m
+            expr: rate(kube_pod_container_status_restarts_total{namespace!~"kube-system|monitoring|ingress-nginx"}[10m]) * 60 * 5 > 3
+            for: 10m
             labels:
               severity: critical
             annotations:
-              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
-              description: "Pod has restarted {{ $value | humanize }} times in the last 10 minutes."
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} crash looping"
+              description: "Pod has restarted multiple times in the last 10 minutes."
 
           - alert: PodNotReady
-            expr: kube_pod_status_ready{condition="true"} == 0
-            for: 5m
+            expr: kube_pod_status_ready{condition="true", namespace!~"kube-system|monitoring|ingress-nginx"} == 0
+            for: 15m
             labels:
               severity: warning
             annotations:
               summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} not ready"
-              description: "Pod has been in a non-ready state for more than 5 minutes."
+              description: "Pod has been in a non-ready state for more than 15 minutes."
 
           - alert: DeploymentReplicasMismatch
-            expr: kube_deployment_spec_replicas != kube_deployment_status_ready_replicas
-            for: 10m
+            expr: kube_deployment_spec_replicas{namespace!~"kube-system|monitoring|ingress-nginx"} != kube_deployment_status_ready_replicas
+            for: 20m
             labels:
               severity: warning
             annotations:
               summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} replica mismatch"
-              description: "Expected {{ $value }} replicas but not all are ready."
+              description: "Expected replicas do not match ready replicas."
 
+      # -------------------------
+      # NODE ALERTS (important)
+      # -------------------------
       - name: homelab-node-alerts
         rules:
+
           - alert: NodeNotReady
             expr: kube_node_status_condition{condition="Ready",status="true"} == 0
-            for: 2m
+            for: 5m
             labels:
               severity: critical
             annotations:
               summary: "Node {{ $labels.node }} is not ready"
-              description: "Node has been in NotReady state for more than 2 minutes."
+              description: "Node has been NotReady for more than 5 minutes."
 
           - alert: NodeHighMemory
-            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
-            for: 5m
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+            for: 10m
             labels:
               severity: warning
             annotations:
-              summary: "Node {{ $labels.instance }} memory usage above 85%"
-              description: "Memory usage is {{ $value | humanize }}%."
+              summary: "Node {{ $labels.instance }} high memory usage"
+              description: "Memory usage above 90%."
 
           - alert: NodeHighCPU
-            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
-            for: 5m
+            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+            for: 10m
             labels:
               severity: warning
             annotations:
-              summary: "Node {{ $labels.instance }} CPU usage above 85%"
-              description: "CPU usage is {{ $value | humanize }}%."
+              summary: "Node {{ $labels.instance }} high CPU usage"
+              description: "CPU usage above 90%."
 
           - alert: NodeDiskPressure
-            expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 85
-            for: 5m
+            expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 90
+            for: 10m
             labels:
               severity: warning
             annotations:
-              summary: "Node {{ $labels.instance }} disk usage above 85%"
-              description: "Disk usage on / is {{ $value | humanize }}%."
+              summary: "Node {{ $labels.instance }} disk usage high"
+              description: "Disk usage above 90%."
