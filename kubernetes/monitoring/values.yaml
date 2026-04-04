@@ -19,16 +19,16 @@ prometheus:
             requests:
               storage: 5Gi
 
-# alertmanager:
-#   alertmanagerSpec:
-#     storage:
-#       volumeClaimTemplate:
-#         spec:
-#           storageClassName: local-path
-#           accessModes: ["ReadWriteOnce"]
-#           resources:
-#             requests:
-#               storage: 2Gi
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
   # config:
   #   global:
   #     smtp_from: alertmanager@lennardjohn.org
