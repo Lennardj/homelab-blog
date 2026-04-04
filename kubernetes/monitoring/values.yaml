@@ -19,16 +19,16 @@ prometheus:
             requests:
               storage: 5Gi
 
-alertmanager:
-  alertmanagerSpec:
-    storage:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: local-path
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 2Gi
+# alertmanager:
+#   alertmanagerSpec:
+#     storage:
+#       volumeClaimTemplate:
+#         spec:
+#           storageClassName: local-path
+#           accessModes: ["ReadWriteOnce"]
+#           resources:
+#             requests:
+#               storage: 2Gi
   # config:
   #   global:
   #     smtp_from: alertmanager@lennardjohn.org
@@ -52,9 +52,9 @@ alertmanager:
   #         - to: lennardvincentjohn@gmail.com
   #           send_resolved: true
 
-additionalPrometheusRulesMap:
-  homelab-alerts:
-    groups:
+# additionalPrometheusRulesMap:
+#   homelab-alerts:
+#     groups:
       # - name: homelab-pod-alerts
       #   rules:
       #     - alert: PodCrashLooping
