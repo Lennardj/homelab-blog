@@ -8,11 +8,12 @@ if [ -f /tfstate/terraform.tfstate ] && ! [ /tfstate/terraform.tfstate -ef terra
 fi
 
 # Stop existing K8s VMs before force_create (Proxmox can't destroy running VMs)
+
 PVE_API="${TF_VAR_proxmox_api_url}"
 PVE_AUTH="Authorization: PVEAPIToken=${TF_VAR_proxmox_api_token_id}=${TF_VAR_proxmox_api_token_secret}"
 PVE_NODE="${TF_VAR_target_node:-pve}"
 for VMID in 150 200 201; do
-  STATUS=$(curl -sk -H "$PVE_AUTH" \
+  STATUS=$(curl -sk -H "$PoVE_AUTH" \
     "${PVE_API}/nodes/${PVE_NODE}/qemu/${VMID}/status/current" 2>/dev/null \
     | jq -r '.data.status // empty')
   if [ "$STATUS" = "running" ]; then
@@ -40,3 +41,4 @@ for IP in $VM_IPS; do
 done
 terraform output -json > /artifacts/output.json.tmp
 mv /artifacts/output.json.tmp /artifacts/output.json
+
