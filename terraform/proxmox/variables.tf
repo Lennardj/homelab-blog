@@ -117,7 +117,7 @@ variable "k8s_workers" {
   default = {
     cores  = 2
     count  = 2
-    memory = 2048
+    memory = 4096
     disk   = 70
   }
 }
