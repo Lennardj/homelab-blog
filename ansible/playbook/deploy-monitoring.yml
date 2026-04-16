@@ -1,5 +1,6 @@
 ---
 - name: Deploy Monitoring Stack
+# I need the pipline to rerun
   hosts: k8s_control_plane
   become: true
   vars:
