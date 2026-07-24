@@ -1,5 +1,6 @@
 ---
 - name: Install MetalLB
+# pipeline test
   hosts: k8s_control_plane
   become: true
   vars:

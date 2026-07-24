@@ -1942,6 +1942,61 @@ The `-ef` test checks if two paths refer to the same inode — returns true on t
 
 ---
 
+## Incident #23 — Grafana 503 from nginx: Helm release vanished from `monitoring` namespace
+
+**Symptom:** `https://grafana.lennardjohn.org` returned `503 Service Temporarily Unavailable` from nginx. Pods appeared to be running in a stale `command_output.txt` from earlier, but the live cluster state was different.
+
+**Diagnostic steps:**
+
+1. `kubectl describe ingress -n monitoring grafana` showed:
+   ```
+   kube-prometheus-stack-grafana:80 (<error: endpoints "kube-prometheus-stack-grafana" not found>)
+   ```
+2. `kubectl get svc -n monitoring kube-prometheus-stack-grafana` → `NotFound`
+3. `kubectl get pods,svc -n monitoring` → `No resources found in monitoring namespace.`
+4. Verified WordPress PVCs (`kubectl get pvc -n wordpress`) were still `Bound` — confirmed data was safe before reinstalling.
+
+**Root cause:** The entire `kube-prometheus-stack` Helm release had been removed from the `monitoring` namespace. The Ingress and Namespace objects survived because they're git-tracked via `kubernetes/monitoring/kustomization.yaml` (and reconciled by ArgoCD), but the Helm-managed resources (Deployment, Service, PVC, ConfigMaps) are **not** in git — they live only in Helm's release history. When the release was gone, the Service disappeared, nginx-ingress had no backend endpoints, and every request returned 503.
+
+The triggering event was likely a failed `helm upgrade` during an earlier attempt at tuning memory/alerts (recent commits: `remove additionalPrometheusRulesMap to reduce noise`, `increase the memory on node`). ArgoCD was ruled out as the culprit: its `monitoring` Application only tracks `namespace.yaml` + `grafana-ingress.yaml`, and Helm-managed resources don't carry ArgoCD tracking labels, so auto-prune wouldn't touch them.
+
+**Fix:** Reinstalled the Helm release directly from the master node — no Ansible, no GitHub runner needed, since `helm` and `kubectl` are already on the master:
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm upgrade --install kube-prometheus-stack \
+  prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace \
+  --values /tmp/values.yaml \
+  --set grafana.adminPassword='***' \
+  --set alertmanager.config.global.smtp_auth_password='***'
+```
+
+Command matches `ansible/playbook/deploy-monitoring.yml:36-47` exactly — same chart, same repo, same namespace, same values, same `--set` flags. Skipping the Ansible wrapper is safe because:
+- The kustomize step (`kubectl apply -k`) that the playbook runs first only creates `namespace.yaml` + `grafana-ingress.yaml`, both of which already existed.
+- The ArgoCD Application registration at the end of the playbook is idempotent — the Application already existed.
+
+**Verification:**
+
+```
+curl -vk https://grafana.lennardjohn.org
+< HTTP/1.1 302 Found
+< Location: /login
+```
+
+302 → `/login` is Grafana's healthy redirect to its login page. The browser still showed 503 initially because browsers cache error responses — `Ctrl+Shift+R` (hard refresh) or an incognito window returned the login page immediately.
+
+**Interview talking points:**
+
+1. **GitOps only protects what's in git.** ArgoCD rebuilt the namespace and ingress because those are declared in `kubernetes/monitoring/`. It could not rebuild the Helm release because Helm-managed resources are rendered at install time, not stored in git. This is a real blind spot in hybrid GitOps+Helm setups — mitigations include: (a) `argocd-helm` plugin that lets ArgoCD own the Helm install, (b) pre-rendering Helm charts into static manifests and committing those, or (c) accepting that Helm-managed apps need a separate bootstrap/recovery path.
+2. **Ingress 503 diagnostic path.** When nginx returns 503, start with the backend: `kubectl describe ingress` tells you the service name and whether endpoints exist. Empty endpoints almost always mean the Service's label selector doesn't match any pods — either pods are gone, pods have wrong labels, or readiness probes are failing. "Endpoints not found" (a different error) means the Service object itself is missing.
+3. **Stale tool output can mislead diagnosis.** The initial `command_output.txt` showed Grafana pods running, but that file was from an earlier session. The ingress description from the live cluster showed the actual state. Rule: when state looks inconsistent, trust the freshest source and re-run the query.
+4. **Browsers cache 503 responses.** After fixing server-side issues, always test with `curl -v` from the command line before assuming the fix didn't work. A successful 302/200 from curl combined with a 503 in the browser is almost always cache.
+5. **Blast-radius-aware recovery.** Before reinstalling anything, confirmed WordPress PVCs were still `Bound` to ensure user data couldn't be lost by a scoped-wrong reinstall. The fix only touched the `monitoring` namespace.
+
+---
+
 ## Feature — NetworkPolicy: MariaDB isolation
 
 ### What was built

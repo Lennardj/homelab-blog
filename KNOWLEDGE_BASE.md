@@ -415,6 +415,10 @@ INGRESS_IP=192.168.1.70
 - **CrashLoopBackOff, metrics unreachable**: Metrics server binds to `127.0.0.1` on a random port by default. Liveness probe on port 2000 fails. Fix: pass `--metrics 0.0.0.0:2000` in container args.
 - **Rollout timeout on slow hardware**: Image pull can take 2+ minutes on old hardware. Ansible's `kubectl rollout status --timeout=120s` was too short. Increased to `600s` — pods were actually healthy, just slow to pull.
 
+### Monitoring
+- **Grafana 503 from nginx — Helm release vanished**: `describe ingress` showed `<error: endpoints "kube-prometheus-stack-grafana" not found>` and the entire `monitoring` namespace was empty (no pods, no services). The ingress + namespace survived (they're managed via `kubernetes/monitoring/kustomization.yaml`), but the Helm-managed resources were gone. Likely cause: failed helm upgrade or manual removal. Fix: re-run `helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring --create-namespace --values values.yaml --set grafana.adminPassword=... --set alertmanager.config.global.smtp_auth_password=...` directly on master (no Ansible/runner needed — master has `helm` + `kubectl`). WordPress PVCs in separate namespace were unaffected.
+- **Browser still shows 503 after fix**: Browsers cache 503 responses. `curl -vk https://grafana.lennardjohn.org` returning `HTTP/1.1 302 Found → Location: /login` confirms Grafana is healthy — the browser just needs a hard refresh (`Ctrl+Shift+R`) or incognito window to clear the cached error.
+
 ### Ansible Bootstrap
 - **Helm** is installed in `cluster-services.yml` (playbook #2) so it is available to all subsequent playbooks (`deploy-cert-manager.yml`, `deploy-monitoring.yml`, etc.). Uses `creates: /usr/local/bin/helm` for idempotency.
 - `unattended-upgrades`, `apt-daily.timer`, and `apt-daily-upgrade.timer` are all stopped and disabled before any `apt` task runs. Stopping the service alone is not enough — the timers restart it. All three must be disabled to keep apt clear for the full playbook run.
