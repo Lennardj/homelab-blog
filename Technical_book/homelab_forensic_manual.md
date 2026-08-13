@@ -2049,6 +2049,61 @@ NetworkPolicy is Kubernetes' built-in firewall at the pod level. By default, all
 
 ---
 
+## Feature — WP-CLI runner, and the domain cleanup it enabled
+
+### Why a separate pod
+
+The `wordpress:php8.2-apache` image ships no `wp` binary — confirmed with `command -v wp` → `NOT_INSTALLED`. The official `wordpress:cli` image contains WP-CLI but not WordPress, and is designed to be pointed at an existing install's files and database.
+
+It runs as a long-lived Deployment mounting `wordpress-pvc` alongside the live site. That is legal for the same reason Incident #26 was dangerous: **ReadWriteOnce restricts a volume to one node, not one pod.** The property that allowed two `mariadbd` processes to fight over one data directory is exactly what allows an administrative tool to share the web root safely.
+
+### Two details that would have caused subtle damage
+
+**`runAsUser: 33`.** The image would otherwise run as root, and every file WP-CLI created — installed plugins, generated config — would be root-owned on a volume the WordPress pod accesses as `www-data`. WordPress would then fail to update or delete exactly the files it had just been told to install, with permission errors far removed from the cause.
+
+**NetworkPolicy entry for `app: wpcli`.** The third workload to need one, after `app: wordpress` and `app: backup`. A missing entry does not produce a connection error — Calico drops the packets and `wp` hangs until timeout. This is now a standing rule: any new workload that touches the database needs its label added, or it fails silently.
+
+**`WORDPRESS_CONFIG_EXTRA` deliberately unset.** The web pod defines `WP_HOME`/`WP_SITEURL` there, which override the database at runtime. Setting the same variable on the CLI pod would make `wp option get siteurl` report the constant rather than what is stored — an administrative tool that lies about state is worse than no tool.
+
+### The cleanup: removing the stale-domain landmine
+
+Phase 1 moved the site to the root domain using runtime constants and deliberately never touched the database. That made the change trivially revertible, but left `siteurl` and `home` reading `http://blog.lennardjohn.org`. The site worked only because the constants masked them — remove the constants and it would snap back to the old HTTP URL.
+
+With verified backups in place (Phase 0), the database could safely be brought into line. A fresh backup was taken immediately before the write.
+
+```bash
+wp search-replace "http://blog.lennardjohn.org" "https://lennardjohn.org" \
+  --all-tables-with-prefix --precise --skip-columns=guid --report-changed-only
+```
+
+Dry run first:
+
+```
+wp_options  option_value  2  PHP
+wp_posts    post_content  2  PHP
+wp_posts    guid          5  PHP
+wp_users    user_url      1  PHP
+Success: 10 replacements to be made.
+```
+
+**Half the candidate replacements were GUIDs, and rewriting them would have been a mistake.** `wp_posts.guid` is not a URL despite looking like one — WordPress uses it as a permanent opaque identifier for feed items and never resolves it. Changing it makes every RSS reader treat existing posts as brand new. Skipping that column reduced the change from 10 replacements to the 5 that mattered.
+
+`--precise` forces PHP-based replacement rather than a SQL `REPLACE()`. Serialized PHP data — widget settings, theme mods, plugin options — embeds string lengths (`s:24:"http://blog.lennardjohn.org"`). A naive SQL replace changes the string but not the declared length, silently corrupting the value into something PHP cannot unserialize.
+
+The constants were **kept** rather than removed: they now agree with the database, and they additionally protect the site if an older backup carrying the previous URLs is ever restored.
+
+Verified after: `siteurl`/`home` correct, only `guid` values still referencing the old domain (intended), root `200`, `/wp-admin/` `302` to login, `blog.` subdomain `301`.
+
+### Interview talking points
+
+1. **The same storage property is a hazard in one context and a feature in another.** RWO permitting multiple pods per node nearly caused database corruption in Incident #26, and is what makes a shared administrative tool pod possible here. The property is neutral; whether it is safe depends entirely on whether the workload tolerates concurrent writers.
+2. **Container UID is part of the interface when a volume is shared.** Two containers mounting one PVC must agree on ownership, or one silently creates files the other cannot manage.
+3. **Read the dry run, do not just run it.** The dry run revealed that half the proposed replacements were in a column that must never be rewritten. The command would have "succeeded" either way — correctness here came from understanding what `guid` is for, not from the tool reporting an error.
+4. **Serialized data is why `--precise` exists.** PHP serialization embeds string lengths, so byte-level replacement corrupts any value whose length changes. This is the single most common way a WordPress domain migration destroys plugin settings.
+5. **Sequencing made the risky change safe.** Editing the database was explicitly rejected in Phase 1 as too risky to revert. The same edit became routine once Phase 0 provided a verified restore path. The action did not get safer — the recovery position did.
+
+---
+
 ## Incident #26 — MariaDB rollout deadlock: `RollingUpdate` against a ReadWriteOnce PVC
 
 **Symptom:** After the Phase 2 memory increase, WordPress rolled out cleanly but MariaDB did not:

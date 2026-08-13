@@ -249,6 +249,8 @@ Browser → Cloudflare DNS → Cloudflare Edge
 
 **Why a separate Ingress object rather than adding a host to `ingress.yaml`:** the original blog route stays byte-for-byte unmodified, so rollback cannot corrupt it. Two Ingresses in the same namespace pointing at the same Service is perfectly valid.
 
+> **Update 2026-08-14:** the database has since been brought into line. `siteurl` and `home` now read `https://lennardjohn.org`, updated with `wp search-replace` once verified backups existed. The constants are **kept** as defence in depth — they also protect the site if an older backup with the previous URLs is ever restored. Database and constants now agree, so the "remove the constants and the site reverts to the old HTTP URL" landmine is gone. See "Domain cleanup with WP-CLI" below.
+
 **Why `WORDPRESS_CONFIG_EXTRA` instead of editing the database:** WordPress stores `siteurl`/`home` in the `wp_options` table. The usual domain move is a SQL `UPDATE` plus a search-replace, which is destructive and easy to get wrong (a bad value locks you out of `/wp-admin`). `WP_HOME`/`WP_SITEURL` defined in `wp-config.php` **override** the database values without touching them. The config is declarative, lives in Git, is owned by Argo CD, and reverts with `git revert`. The database is never modified, so rollback is guaranteed clean.
 
 **How `WORDPRESS_CONFIG_EXTRA` reaches an already-installed site:** the persisted `wp-config.php` on the PVC contains, near the end:
@@ -297,9 +299,36 @@ Note `selfHeal: true` will revert manual changes once Argo CD is healthy again �
 - `mariadb-database`: wordpress
 - `mariadb-user`: wordpress
 
+**WP-CLI runner (`wpcli`)**
+- Image: `wordpress:cli` — contains WP-CLI but not WordPress; the `wordpress:php8.2-apache` image ships no `wp` binary
+- Mounts `wordpress-pvc` read/write alongside the live WordPress pod. Legal because RWO restricts the volume to one *node*, not one pod, and the local-path PV pins both to the same node
+- `runAsUser`/`runAsGroup` **33** (`www-data`) — matching the PVC's file ownership. Running as root would create root-owned files the WordPress pod could not later modify, quietly breaking plugin and media uploads
+- `WORDPRESS_CONFIG_EXTRA` deliberately **not** set, so `wp option get siteurl` reports the real database value rather than the runtime constant
+- Usage: `kubectl exec -n wordpress deploy/wpcli -- wp <args>`, or `scripts/wp.sh <args>`
+- Park with `kubectl scale deploy/wpcli -n wordpress --replicas=0`
+
+### Domain cleanup with WP-CLI (2026-08-14)
+
+`siteurl`, `home`, post content and one user URL still pointed at `http://blog.lennardjohn.org`. Corrected after taking a backup:
+
+```bash
+wp search-replace "http://blog.lennardjohn.org" "https://lennardjohn.org" \
+  --all-tables-with-prefix --precise --skip-columns=guid --report-changed-only
+```
+
+**`--skip-columns=guid` is not optional.** WordPress uses `wp_posts.guid` as a permanent, opaque identifier for feed items — it is never resolved as a URL. Rewriting it makes RSS readers treat every existing post as new. The dry run showed 5 of the 10 candidate replacements were GUIDs; skipping them reduced the change to the 5 that mattered.
+
+`--precise` forces PHP-based replacement so serialized data (widgets, theme mods, plugin settings) has its string lengths recalculated. Without it a naive SQL replace corrupts any serialized value whose length changes.
+
+Always `--dry-run` first, then flush:
+```bash
+wp cache flush && wp rewrite flush
+```
+
 **NetworkPolicy: mariadb-allow-wordpress-only**
-- Restricts all ingress to the MariaDB pod to only the WordPress pod on TCP 3306
+- Restricts ingress to the MariaDB pod to TCP 3306 from three labels only: `app: wordpress`, `app: backup` (the nightly CronJob) and `app: wpcli` (the WP-CLI runner)
 - No other pod, namespace, or service can reach MariaDB
+- **Any new workload that talks to the database needs its label added here.** A missing entry causes Calico to drop the connection *silently* — the client hangs rather than erroring, and the symptom appears nowhere near the cause
 - Enforced at the Kubernetes network level (Calico CNI), not at the database layer
 
 ### cloudflared namespace
