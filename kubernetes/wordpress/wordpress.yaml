@@ -43,18 +43,28 @@ spec:
             # edit and reverses with `git revert`. Delete this env var to send
             # WordPress back to whatever the database says (blog.lennardjohn.org).
             #
-            # The X-Forwarded-Proto check is required, not optional: Cloudflare
-            # terminates TLS and the tunnel talks plain HTTP to ingress-nginx, so
-            # PHP sees an HTTP request while WP_SITEURL says https. Without this,
-            # WordPress redirects http->https on every request and the browser
-            # ends in a redirect loop.
+            # HTTPS must be forced unconditionally, NOT keyed off
+            # X-Forwarded-Proto. Cloudflare terminates TLS and cloudflared speaks
+            # plain HTTP to ingress-nginx, so PHP sees an HTTP request while
+            # WP_SITEURL says https -> WordPress redirects to the https URL, which
+            # arrives as HTTP again -> ERR_TOO_MANY_REDIRECTS on /wp-admin/.
+            #
+            # Checking X-Forwarded-Proto does NOT work here: ingress-nginx defaults
+            # to use-forwarded-headers=false, so it DISCARDS Cloudflare's
+            # X-Forwarded-Proto: https and rewrites it from the connection scheme
+            # ($scheme = http). WordPress therefore never sees "https" no matter
+            # what Cloudflare sent. (Verified: /wp-admin/ 302'd to itself.)
+            #
+            # Forcing it on is correct here because the ONLY external path to this
+            # pod is Cloudflare -> tunnel -> ingress-nginx, which is always HTTPS
+            # for the client. The alternative fix - setting use-forwarded-headers
+            # in the ingress-nginx ConfigMap - is cluster-wide and would also
+            # affect Grafana and Argo CD, so it is deliberately not used.
             - name: WORDPRESS_CONFIG_EXTRA
               value: |
                 define('WP_HOME','https://lennardjohn.org');
                 define('WP_SITEURL','https://lennardjohn.org');
-                if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
-                    $_SERVER['HTTPS'] = 'on';
-                }
+                $_SERVER['HTTPS'] = 'on';
           resources:
             requests:
               cpu: 100m

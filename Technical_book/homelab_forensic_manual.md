@@ -2049,6 +2049,81 @@ NetworkPolicy is Kubernetes' built-in firewall at the pod level. By default, all
 
 ---
 
+## Incident #24 — `ERR_TOO_MANY_REDIRECTS` on `/wp-admin/`: ingress-nginx discards Cloudflare's `X-Forwarded-Proto`
+
+**Symptom:** After moving the root domain to WordPress, `https://lennardjohn.org/` loaded fine (HTTP 200) but `https://lennardjohn.org/wp-admin/` failed in the browser with `ERR_TOO_MANY_REDIRECTS`.
+
+**Diagnostic steps:**
+
+1. Checked the redirect target without following it:
+   ```
+   curl -sS -o /dev/null -D - --max-redirs 0 https://lennardjohn.org/wp-admin/
+
+   HTTP/1.1 302 Found
+   location: https://lennardjohn.org/wp-admin/
+   Server: cloudflare
+   ```
+   The `Location` header points at **the exact URL that was requested**. A self-referential 302 is an unconditional infinite loop — the browser is not at fault and no amount of cache clearing will help.
+
+2. Confirmed the root path was healthy:
+   ```
+   curl -sS -o /dev/null -D - --max-redirs 0 https://lennardjohn.org/
+
+   HTTP/1.1 200 OK
+   ```
+   Root 200 + admin loop is the signature of a scheme-detection problem, not a routing or backend problem. Ingress, Service and pod were all working — WordPress was choosing to redirect.
+
+**Root cause:** The `WORDPRESS_CONFIG_EXTRA` block added during the root-domain switch made the HTTPS flag conditional:
+
+```php
+if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+    $_SERVER['HTTPS'] = 'on';
+}
+```
+
+The assumption was that Cloudflare's `X-Forwarded-Proto: https` reaches PHP. It does not. **`ingress-nginx` sets `use-forwarded-headers: false` by default**, which means it deliberately ignores inbound `X-Forwarded-*` headers and regenerates them from the connection it actually received. Since `cloudflared` connects to the controller over plain HTTP, ingress-nginx overwrites the header with `X-Forwarded-Proto: http`.
+
+That default is a security measure, not a bug: trusting client-supplied `X-Forwarded-*` headers by default would let any client spoof its origin scheme and IP. The header is only trustworthy when you know a proxy you control sits in front, which is exactly what the setting exists to declare.
+
+So the condition never evaluated true, `$_SERVER['HTTPS']` stayed unset, and WordPress saw an HTTP request for a site whose `WP_SITEURL` is `https://`. `/wp-admin/` additionally runs through `auth_redirect()`, which forces a redirect to the canonical HTTPS admin URL — producing the self-referential 302 and the loop. The homepage escaped because it does not run that check.
+
+**Two possible fixes considered:**
+
+| Option | Scope | Verdict |
+|---|---|---|
+| Set `use-forwarded-headers: true` in the ingress-nginx ConfigMap | **Cluster-wide** — changes header handling for Grafana, Argo CD and every future Ingress | Rejected. Blast radius far exceeds the problem. |
+| Force `$_SERVER['HTTPS'] = 'on'` in `wp-config.php` | **WordPress only** | Chosen. |
+
+**Fix** — `kubernetes/wordpress/wordpress.yaml`:
+
+Before:
+```php
+define('WP_HOME','https://lennardjohn.org');
+define('WP_SITEURL','https://lennardjohn.org');
+if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+    $_SERVER['HTTPS'] = 'on';
+}
+```
+
+After:
+```php
+define('WP_HOME','https://lennardjohn.org');
+define('WP_SITEURL','https://lennardjohn.org');
+$_SERVER['HTTPS'] = 'on';
+```
+
+Forcing the flag unconditionally is correct **in this specific topology** because there is exactly one external path to the pod — Cloudflare → tunnel → ingress-nginx — and it is always HTTPS from the client's perspective. There is no plain-HTTP public route that could be misrepresented. On a cluster that also served the same pod over real HTTP, this would be wrong.
+
+**Interview talking points:**
+
+1. **A self-referential 302 is diagnostically decisive.** `Location` matching the requested URL means the loop is unconditional and server-side. That single `curl` distinguished "the application is choosing to redirect" from "the routing is broken", which eliminated Ingress, Service and DNS in one command. Following redirects (`curl -L`) would have hidden the evidence — `--max-redirs 0` is what exposes it.
+2. **The differential — root 200, admin looping — localised the fault.** Same host, same Ingress, same pod, different result. That rules out every shared layer and points at code paths unique to `/wp-admin/`, i.e. `auth_redirect()` and `force_ssl_admin()`.
+3. **Know your proxy's trust defaults.** `use-forwarded-headers: false` is a deliberate anti-spoofing default: `X-Forwarded-*` is client-controlled and must not be trusted unless a known proxy sits in front. Writing code that depends on a header without verifying the proxy chain actually forwards it is an assumption, not a design.
+4. **Match the fix's blast radius to the problem's blast radius.** Flipping `use-forwarded-headers` cluster-wide to fix one application would have silently changed how every other Ingress handles client headers. A one-line change scoped to WordPress solved the same problem with no collateral surface.
+5. **Documenting the wrong turn is the point.** The original config was committed with a confident comment calling the header check "required, not optional". It was wrong, and it was wrong for an interesting reason — the header genuinely is required *in general*, just not obtainable *here*. Keeping the failed attempt in the record is more instructive than a clean-looking history.
+
+---
+
 ## Feature — Root domain moved from static landing page to WordPress
 
 ### What was built
@@ -2128,7 +2203,9 @@ Defining `WP_HOME` and `WP_SITEURL` as PHP constants in `wp-config.php` override
 
 **Trap 2 — the TLS-termination redirect loop.** Cloudflare terminates TLS at its edge; `cloudflared` forwards plain HTTP to `ingress-nginx`. PHP therefore sees `$_SERVER['HTTPS']` unset. With `WP_SITEURL` set to `https://`, WordPress concludes the request is on the wrong scheme and redirects to the HTTPS URL — which arrives, again, as plain HTTP. `ERR_TOO_MANY_REDIRECTS`.
 
-`ingress-nginx` sets `X-Forwarded-Proto: https`. Trusting that header and setting `$_SERVER['HTTPS'] = 'on'` tells WordPress the client-side connection is already secure, so it stops redirecting. This is the single most common failure mode when putting WordPress behind any reverse proxy or CDN.
+Setting `$_SERVER['HTTPS'] = 'on'` tells WordPress the client-side connection is already secure, so it stops redirecting. This is the single most common failure mode when putting WordPress behind any reverse proxy or CDN.
+
+**The first attempt at this got it wrong** — it made the assignment conditional on `X-Forwarded-Proto: https`, which never matches in this topology. See Incident #24 for why.
 
 ### Why a separate Ingress object rather than adding a host to the existing one
 
