@@ -39,13 +39,19 @@ spec:
                 secretKeyRef:
                   name: wordpress-secrets
                   key: mariadb-password
+          # Phase 2 sizing. Measured before the change: this pod used 146Mi
+          # against a 512Mi cap, on k8s-worker-1 which had ~1.4Gi free.
+          # Tutor LMS and WooCommerce add substantially more tables and queries
+          # than a plain blog; the ceiling is raised so MariaDB is not OOMKilled
+          # under that load. InnoDB buffer pool tuning is deliberately NOT done
+          # here - that is a separate change with its own measurements.
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 1Gi
           livenessProbe:
             tcpSocket:
               port: 3306

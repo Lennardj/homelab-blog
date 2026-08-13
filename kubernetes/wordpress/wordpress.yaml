@@ -65,13 +65,25 @@ spec:
                 define('WP_HOME','https://lennardjohn.org');
                 define('WP_SITEURL','https://lennardjohn.org');
                 $_SERVER['HTTPS'] = 'on';
+                // WordPress caps itself independently of PHP. WP_MEMORY_LIMIT
+                // defaults to 40M and WP_MAX_MEMORY_LIMIT (admin/cron) to 256M,
+                // so without these WordPress would refuse to use the 512M that
+                // php.ini now allows. All three ceilings must agree:
+                // php memory_limit >= WP_MAX_MEMORY_LIMIT >= WP_MEMORY_LIMIT.
+                define('WP_MEMORY_LIMIT','512M');
+                define('WP_MAX_MEMORY_LIMIT','512M');
+          # Phase 2 sizing. Measured before the change: this pod used 112Mi
+          # against a 512Mi cap, on k8s-worker-2 which had ~1.4Gi free.
+          # The limit must clear the 512M PHP memory_limit plus Apache overhead;
+          # 1Gi leaves room for concurrent heavy requests without letting a
+          # runaway plugin consume the node.
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 1000m
+              memory: 1Gi
           livenessProbe:
             tcpSocket:
               port: 80
@@ -87,10 +99,19 @@ spec:
           volumeMounts:
             - name: wordpress-data
               mountPath: /var/www/html
+            # subPath: drops a single file into conf.d instead of replacing the
+            # directory, which would hide the image's own PHP configuration.
+            - name: php-config
+              mountPath: /usr/local/etc/php/conf.d/memory.ini
+              subPath: memory.ini
+              readOnly: true
       volumes:
         - name: wordpress-data
           persistentVolumeClaim:
             claimName: wordpress-pvc
+        - name: php-config
+          configMap:
+            name: wordpress-php-config
 ---
 apiVersion: v1
 kind: Service

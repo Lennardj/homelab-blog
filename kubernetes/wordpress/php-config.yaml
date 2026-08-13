@@ -1,0 +1,30 @@
+# PHP runtime configuration for WordPress.
+#
+# WHY THIS EXISTS
+# Raising the Kubernetes memory limit alone does nothing for WordPress. PHP
+# enforces its own per-process ceiling (`memory_limit`), and the wordpress image
+# ships a default far below what WooCommerce and an LMS need. Without this file
+# the container gets headroom PHP refuses to use, and WooCommerce's status page
+# reports a low memory limit while the pod looks perfectly healthy.
+#
+# Both numbers have to move together:
+#   memory_limit (here)          - what a single PHP request may allocate
+#   resources.limits.memory      - what the whole container may allocate
+# The container limit must exceed memory_limit plus Apache overhead, because
+# memory_limit is PER PROCESS and Apache runs several worker children.
+#
+# Mounted with subPath so it lands ALONGSIDE the image's own conf.d files rather
+# than replacing the directory. Consequence: subPath mounts do not receive
+# ConfigMap updates, so changing this file requires a pod restart:
+#   kubectl rollout restart deploy/wordpress -n wordpress
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wordpress-php-config
+  namespace: wordpress
+data:
+  memory.ini: |
+    ; WooCommerce documents 256-512M for stores and plugin-heavy sites.
+    ; LMS plugins sit in the same range. 512M is the upper end of that
+    ; guidance and matches the intended Tutor LMS + WooCommerce install.
+    memory_limit = 512M

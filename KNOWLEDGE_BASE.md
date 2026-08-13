@@ -122,8 +122,8 @@ docker-compose up
 | VM | ID | Role | CPU | RAM | Disk |
 |---|---|---|---|---|---|
 | k8s-master-01 | 150 | Control plane | 2 cores, 2 sockets | 4096 MB | 70 GB |
-| k8s-worker-1 | 200 | Worker | 2 cores, 2 sockets | 2048 MB | 70 GB |
-| k8s-worker-2 | 201 | Worker | 2 cores, 2 sockets | 2048 MB | 70 GB |
+| k8s-worker-1 | 200 | Worker | 2 cores, 2 sockets | 4096 MB | 70 GB |
+| k8s-worker-2 | 201 | Worker | 2 cores, 2 sockets | 4096 MB | 70 GB |
 
 - OS user: `lennard`
 - Auth: SSH key + cloud-init password
