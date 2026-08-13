@@ -153,8 +153,8 @@ This is not legal advice; for the safeguarding and privacy specifics of running 
 
 **Phase 2 — ✅ Done 2026-08-14.** WordPress and MariaDB container limits raised to 1Gi, PHP `memory_limit` to 512M via ConfigMap, plus `WP_MEMORY_LIMIT`/`WP_MAX_MEMORY_LIMIT`. Sized against measured usage (wordpress 112Mi, mariadb 146Mi, ~1.4Gi free per node; the two pods sit on different workers). Verified in-container. Surfaced and fixed a latent MariaDB `RollingUpdate` deadlock — see Incident #26.
 
-**Phase 3 — Landing content (R1).** About, teaching experience, technical expertise, navigation tabs. Pure WordPress content, no new infrastructure. Delivers visible value early.
-*Est. 1–2 days.*
+**Phase 3 — ✅ Done 2026-08-14.** Landing, About, Projects, Now published, plus Learn / Tech Camp / Resume placeholders so navigation is not broken. Content version-controlled in `wordpress-content/` as Gutenberg block markup, applied by the idempotent `scripts/wp-bootstrap.sh`. Elementor was evaluated and rejected — it stores designs as opaque serialized JSON, unsuitable for programmatic editing. A WP-CLI runner pod (`wpcli`) was added to the cluster, and the stale `blog.lennardjohn.org` values were cleaned out of the database.
+*Outstanding: personal background detail (employment history, qualifications, camp specifics) — deliberately not written, since inventing biography is not something the tooling can do for you.*
 
 **Phase 4 — LMS, free courses only (R2, R5).** Tutor LMS free. Validates the whole model before spending anything.
 *Est. 1–2 days setup, plus content authoring time.*

@@ -307,6 +307,30 @@ Note `selfHeal: true` will revert manual changes once Argo CD is healthy again �
 - Usage: `kubectl exec -n wordpress deploy/wpcli -- wp <args>`, or `scripts/wp.sh <args>`
 - Park with `kubectl scale deploy/wpcli -n wordpress --replicas=0`
 
+### Site content (Phase 3)
+
+Baseline page content is **version-controlled** in `wordpress-content/` as Gutenberg block markup (plain HTML with `<!-- wp:… -->` delimiters), applied by `scripts/wp-bootstrap.sh`.
+
+**Why block markup and not Elementor:** Elementor stores page designs as serialized JSON in the `_elementor_data` postmeta field — opaque, fragile to edit programmatically, and unreviewable in a diff. Block markup is plain text: authorable by hand or by an agent, diffable in Git, and requires no extra plugin. For a site intended to be edited programmatically rather than by clicking, this is the deciding factor.
+
+**Apply / re-apply:**
+```bash
+# from the repo, on a machine with SSH to master
+tar -czf /tmp/wpcontent.tgz -C wordpress-content .
+scp /tmp/wpcontent.tgz lennard@192.168.1.70:/tmp/
+ssh lennard@192.168.1.70
+rm -rf /tmp/content && mkdir -p /tmp/content && tar -xzf /tmp/wpcontent.tgz -C /tmp/content
+POD=$(kubectl get pod -n wordpress -l app=wpcli -o jsonpath='{.items[0].metadata.name}')
+kubectl cp /tmp/content wordpress/$POD:/tmp/content
+kubectl exec -n wordpress deploy/wpcli -- sh /tmp/content/wp-bootstrap.sh
+```
+
+The script is **idempotent** — pages are upserted by slug, so re-running updates in place rather than creating duplicates. It sets the site title, the static front page, permalinks, and rebuilds the block-theme navigation (`wp_navigation` post).
+
+**Scope boundary, stated explicitly:** this makes the site *skeleton* reproducible from Git — which pages exist, their content, the menu, the title. It does **not** make WordPress reproducible. Posts written later, uploaded media, plugin settings and user accounts live in the database and PVC and remain a restore-from-backup concern.
+
+Pages: `home` (front page), `about`, `projects`, `now`, `learn`, `camp`, `resume`. The last three are placeholders for Phases 4–9. WordPress's default `Hello world!` post and `Sample Page` were deleted.
+
 ### Domain cleanup with WP-CLI (2026-08-14)
 
 `siteurl`, `home`, post content and one user URL still pointed at `http://blog.lennardjohn.org`. Corrected after taking a backup:
