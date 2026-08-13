@@ -2188,6 +2188,20 @@ This is the general hazard with default-deny networking: adding a new workload t
 
 **root credentials for the dump.** `--routines --triggers --events` require privileges the application user does not hold. Noted explicitly rather than left as an unexplained choice.
 
+### Restore drill — verified 2026-08-13
+
+The backup was not considered complete until a restore had actually been performed. Result: table counts and `wp_posts` row counts matched exactly between the live database and the restored copy.
+
+The drill was designed so it can be repeated safely at any time, which mattered more than doing it once:
+
+**It never writes to the live database.** The dump is taken with `--databases`, so it carries `CREATE DATABASE` and `USE \`wordpress\`` statements — piping it into MariaDB would silently overwrite the running site. A "restore test" that destroys production on a typo will not be run twice. Stripping those two statements and redirecting into `wordpress_restoretest` makes the drill repeatable and boring, which is the goal.
+
+**It verifies by comparison, not by absence of errors.** A restore that throws no errors has not been verified — it has merely completed. Comparing table counts and row counts between live and restored turns "it seemed to work" into evidence.
+
+**Cheap structural checks first.** `grep -c "^CREATE TABLE"` and checking for the trailing `-- Dump completed` marker catch a truncated dump before any import is attempted. A dump cut short by a full disk or killed process looks perfectly normal until the missing tail is needed.
+
+**The drill and real recovery are documented separately.** They genuinely differ: recovery imports the `CREATE DATABASE`/`USE` statements the drill strips, and additionally restores files into the PVC. Conflating them would make the safe procedure dangerous or the real one incomplete.
+
 ### Interview talking points
 
 1. **Sequencing is a design decision.** Backups were built before the LMS, payments or camp signup, because every one of those creates irreplaceable data. Building features first and backups later means the window of maximum data value coincides with the window of zero protection.

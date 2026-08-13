@@ -818,48 +818,85 @@ kubectl logs -n wordpress -f job/backup-manual-01
 
 Expected on first run: `repository not found - initialising`, then a backup, then `check` passing.
 
-### Restore procedure
+### Restore drill — VERIFIED 2026-08-13 ✅
 
-**An untested backup is not a backup.** Run this at least once.
+This procedure has been run end-to-end. Table and post counts matched between the live database and the restored copy. It is safe to re-run at any time: **it never writes to the live database.**
 
-**1. Start a throwaway pod with repo access:**
+Re-run it after any change to the backup job, the MariaDB version, or the WordPress schema.
+
+**1. Start a long-lived pod with repository access** (`sleep 3600` rather than `--rm -it`, so files can be copied out of it afterwards):
 ```bash
-kubectl run restic-restore -n wordpress --rm -it --restart=Never \
+kubectl run restic-restore -n wordpress --restart=Never \
   --image=restic/restic:latest \
-  --overrides='{"spec":{"volumes":[{"name":"ssh","secret":{"secretName":"backup-secrets","defaultMode":256,"items":[{"key":"ssh-privatekey","path":"id_ed25519"},{"key":"known-hosts","path":"known_hosts"}]}}],"containers":[{"name":"restic-restore","image":"restic/restic:latest","stdin":true,"tty":true,"command":["/bin/sh"],"volumeMounts":[{"name":"ssh","mountPath":"/ssh","readOnly":true}],"env":[{"name":"RESTIC_REPOSITORY","value":"sftp:resticbackup@192.168.1.174:/backup/restic"},{"name":"RESTIC_PASSWORD","valueFrom":{"secretKeyRef":{"name":"backup-secrets","key":"restic-password"}}}]}]}}'
+  --overrides='{"spec":{"volumes":[{"name":"ssh","secret":{"secretName":"backup-secrets","defaultMode":256,"items":[{"key":"ssh-privatekey","path":"id_ed25519"},{"key":"known-hosts","path":"known_hosts"}]}}],"containers":[{"name":"restic-restore","image":"restic/restic:latest","command":["/bin/sh","-c","sleep 3600"],"volumeMounts":[{"name":"ssh","mountPath":"/ssh","readOnly":true}],"env":[{"name":"RESTIC_REPOSITORY","value":"sftp:resticbackup@192.168.1.174:/backup/restic"},{"name":"RESTIC_PASSWORD","valueFrom":{"secretKeyRef":{"name":"backup-secrets","key":"restic-password"}}}]}]}}'
 ```
 
-**2. Inside the pod:**
-```sh
-export RESTIC_SFTP_COMMAND="ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes resticbackup@192.168.1.174 -s sftp"
-RESTIC="restic -o sftp.command=$RESTIC_SFTP_COMMAND"
-
-$RESTIC snapshots                          # list what exists
-$RESTIC restore latest --target /restore   # or --target /restore <snapshot-id>
-ls -la /restore/dump /restore/var/www/html
-```
-
-**3. Restore the database** (from the master node). Read the password out of the Secret — `$MARIADB_ROOT_PASSWORD` is not set in your shell on master, and would silently expand to an empty string:
+**2. Restore and inspect:**
 ```bash
+kubectl exec -n wordpress restic-restore -- sh -c '
+SFTP_CMD="ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes resticbackup@192.168.1.174 -s sftp"
+restic -o "sftp.command=$SFTP_CMD" snapshots
+restic -o "sftp.command=$SFTP_CMD" restore latest --target /restore
+echo "--- tables ---"; grep -c "^CREATE TABLE" /restore/dump/wordpress.sql
+echo "--- complete? ---"; tail -2 /restore/dump/wordpress.sql
+echo "--- wp files ---"; ls /restore/var/www/html/ | head -20'
+```
+
+Expect ~12 `CREATE TABLE` statements for a stock WordPress schema, a trailing `-- Dump completed` marker, and `wp-config.php` / `wp-content` in the file listing. **A truncated dump has no completion marker** — cheapest possible integrity check.
+
+**3. Import into a SCRATCH database and compare.**
+
+> ⚠️ **Never pipe this dump straight into MariaDB.** It is taken with `--databases`, so it contains `CREATE DATABASE` and `USE \`wordpress\`` — importing it directly would overwrite the live site. Strip those two statements and redirect into a scratch database instead.
+
+```bash
+kubectl cp wordpress/restic-restore:/restore/dump/wordpress.sql ./restored.sql
+
 ROOT_PW=$(kubectl get secret -n wordpress wordpress-secrets \
   -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
 
-kubectl exec -i -n wordpress deploy/mariadb -- \
-  mariadb -u root -p"$ROOT_PW" < wordpress.sql
-```
-root works here because `kubectl exec` runs *inside* the MariaDB pod, and the image grants `root@localhost`. That is exactly why the backup job cannot use root — see Incident #25.
+kubectl exec -n wordpress deploy/mariadb -- \
+  mariadb -u root -p"$ROOT_PW" -e "CREATE DATABASE wordpress_restoretest;"
 
-**4. Restore files** into the WordPress PVC:
+grep -v '^CREATE DATABASE\|^USE `' ./restored.sql | \
+  kubectl exec -i -n wordpress deploy/mariadb -- \
+  mariadb -u root -p"$ROOT_PW" wordpress_restoretest
+```
+
+root is valid here because `kubectl exec` runs *inside* the MariaDB pod, where `root@localhost` exists. That is precisely why the backup job cannot use root — see Incident #25.
+
+**4. Verify — counts must match:**
 ```bash
-kubectl cp ./html wordpress/<wordpress-pod>:/var/www/ -c wordpress
+kubectl exec -n wordpress deploy/mariadb -- mariadb -u root -p"$ROOT_PW" -e "
+SELECT 'live' AS src, COUNT(*) AS tables FROM information_schema.tables WHERE table_schema='wordpress'
+UNION ALL
+SELECT 'restored', COUNT(*) FROM information_schema.tables WHERE table_schema='wordpress_restoretest';
+SELECT 'live' AS src, COUNT(*) AS posts FROM wordpress.wp_posts
+UNION ALL
+SELECT 'restored', COUNT(*) FROM wordpress_restoretest.wp_posts;
+SELECT option_value FROM wordpress_restoretest.wp_options WHERE option_name='siteurl';"
 ```
 
-**5. Restart WordPress** so it re-reads state:
+**5. Clean up:**
 ```bash
-kubectl rollout restart deploy/wordpress -n wordpress
+kubectl exec -n wordpress deploy/mariadb -- \
+  mariadb -u root -p"$ROOT_PW" -e "DROP DATABASE wordpress_restoretest;"
+kubectl delete pod -n wordpress restic-restore
+shred -u ./restored.sql
 ```
 
-> Practise the restore into a scratch namespace before you ever need it in anger. The first time you run a restore should not be during an outage.
+### Real disaster recovery (live restore)
+
+The drill above proves the data is recoverable. An actual recovery differs in two ways:
+
+1. **Database** — import without stripping anything, so `CREATE DATABASE`/`USE` recreate the schema:
+   ```bash
+   kubectl exec -i -n wordpress deploy/mariadb -- mariadb -u root -p"$ROOT_PW" < restored.sql
+   ```
+2. **Files** — copy the restored tree into the WordPress PVC, then restart so WordPress re-reads state:
+   ```bash
+   kubectl cp ./html wordpress/<wordpress-pod>:/var/www/ -c wordpress
+   kubectl rollout restart deploy/wordpress -n wordpress
+   ```
 
 ### Verifying backups are actually running
 

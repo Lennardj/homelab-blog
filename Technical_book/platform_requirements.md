@@ -146,9 +146,8 @@ This is not legal advice; for the safeguarding and privacy specifics of running 
 
 ## 6. Recommended build order
 
-**Phase 0 — Backups. Before anything else.**
-`mysqldump` + PVC backup CronJob, off-cluster destination, tested restore. Everything after this point creates data that cannot be rebuilt from Git.
-*Est. 1 day.*
+**Phase 0 — ✅ Done 2026-08-13.** restic over SFTP to a dedicated `resticbackup` user on the Proxmox host; nightly `mariadb-dump` + WordPress PVC, encrypted client-side, 7/4/6 retention, nightly integrity check. **Restore drill verified** — table and post counts matched. See `KNOWLEDGE_BASE.md` §16 and Incident #25.
+*Outstanding: a second off-site repository (Cloudflare R2) for true disaster recovery, and a Prometheus alert on backup job failure.*
 
 **Phase 1 — ✅ Done.** Root domain serves WordPress.
 
