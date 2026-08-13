@@ -9,3 +9,4 @@ resources:
   - ingress.yaml
   - root-ingress.yaml
   - network-policy.yaml
+  - backup-cronjob.yaml

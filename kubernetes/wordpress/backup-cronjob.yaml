@@ -1,0 +1,214 @@
+# Phase 0 — WordPress backup to the Proxmox host via restic over SFTP.
+#
+# WHY THIS EXISTS
+# Both PVCs use the local-path provisioner, which writes to a directory on ONE
+# node with no replication. Argo CD can rebuild every manifest in this repo from
+# Git, but it cannot rebuild a single post, plugin, course, order or student
+# record - none of that is in Git. Without this CronJob a node disk failure is
+# total, unrecoverable data loss.
+#
+# WHAT IT BACKS UP
+#   /dump           - mysqldump of the WordPress database (written by initContainer)
+#   /var/www/html   - the WordPress PVC: uploads, plugins, themes
+#
+# WHERE IT GOES
+#   sftp:backup@192.168.1.174:/backup/restic  (Proxmox host, off-cluster)
+#
+# restic encrypts client-side, so the Proxmox host never sees plaintext. This
+# matters: these backups will eventually contain children's registration details
+# and payment records.
+#
+# LIMITATION, STATED PLAINLY: the Proxmox host also runs the VMs this cluster
+# lives on. This protects against node failure, PVC loss and accidental deletion
+# - the common cases - but NOT against the Proxmox host itself dying. For true
+# disaster recovery a second off-site repository is needed.
+#
+# PREREQUISITES (one-time manual setup - see KNOWLEDGE_BASE.md "Phase 0"):
+#   1. backup user + /backup/restic directory on the Proxmox host
+#   2. SSH keypair, public key in the backup user's authorized_keys
+#   3. `backup-secrets` Secret in this namespace (NOT in Git)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wordpress-backup
+  namespace: wordpress
+spec:
+  # 15:00 UTC = 03:00 NZST (UTC+12). During daylight saving (NZDT, UTC+13) this
+  # lands at 04:00 local. The `timeZone` field is deliberately NOT used: it is
+  # only stable from Kubernetes 1.27, and an unsupported field would cause the
+  # whole manifest to be rejected on apply.
+  schedule: "0 15 * * *"
+  # Forbid: never let a slow backup overlap the next run. Two restic processes
+  # against one repository would contend on locks.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Required by the NetworkPolicy to reach MariaDB on 3306.
+            app: backup
+        spec:
+          restartPolicy: OnFailure
+
+          # The database dump runs first, into a shared emptyDir. restic then
+          # backs up that dump plus the PVC in a single snapshot, so the SQL and
+          # the uploads in any given snapshot are from the same run.
+          initContainers:
+            - name: mysqldump
+              image: mariadb:11
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  # MYSQL_PWD keeps the password out of the process list, where
+                  # --password=... would expose it to anything running `ps`.
+                  export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"
+                  mariadb-dump \
+                    --host=mariadb \
+                    --user=root \
+                    --single-transaction \
+                    --quick \
+                    --routines \
+                    --triggers \
+                    --events \
+                    --databases "$MARIADB_DATABASE" \
+                    > /dump/wordpress.sql
+                  echo "dump complete: $(du -h /dump/wordpress.sql | cut -f1)"
+              env:
+                # root is used rather than the wordpress user because --routines,
+                # --triggers and --events require privileges the application user
+                # does not hold. The credential is already present in this
+                # namespace and the job is an administrative workload.
+                - name: MARIADB_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: wordpress-secrets
+                      key: mariadb-root-password
+                - name: MARIADB_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: wordpress-secrets
+                      key: mariadb-database
+              volumeMounts:
+                - name: dump
+                  mountPath: /dump
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+
+          containers:
+            - name: restic
+              # The official image is Alpine-based and ships ca-certificates,
+              # fuse, openssh-client, tzdata and jq - openssh-client is what makes
+              # the sftp backend work without a custom image.
+              # TODO: pin to a specific version once verified against the cluster.
+              image: restic/restic:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+
+                  # StrictHostKeyChecking=yes with a pre-seeded known_hosts. The
+                  # pod filesystem is ephemeral, so accept-new would re-trust the
+                  # host on every single run - which is not host verification at
+                  # all, just a silent MITM window every night.
+                  export RESTIC_SFTP_COMMAND="ssh \
+                    -i /ssh/id_ed25519 \
+                    -o UserKnownHostsFile=/ssh/known_hosts \
+                    -o StrictHostKeyChecking=yes \
+                    -o IdentitiesOnly=yes \
+                    -o BatchMode=yes \
+                    backup@192.168.1.174 -s sftp"
+
+                  RESTIC="restic -o sftp.command=$RESTIC_SFTP_COMMAND"
+
+                  # Initialise the repository on first run only. `snapshots`
+                  # succeeding proves the repo exists AND the password decrypts it.
+                  if ! $RESTIC snapshots > /dev/null 2>&1; then
+                    echo "repository not found - initialising"
+                    $RESTIC init
+                  fi
+
+                  echo "=== backup ==="
+                  $RESTIC backup /dump /var/www/html \
+                    --tag wordpress \
+                    --host lennardjohn
+
+                  echo "=== retention ==="
+                  $RESTIC forget \
+                    --tag wordpress \
+                    --keep-daily 7 \
+                    --keep-weekly 4 \
+                    --keep-monthly 6 \
+                    --prune
+
+                  # Verify integrity, reading a sample of the actual data rather
+                  # than only metadata. An unverified backup is an assumption.
+                  echo "=== verify ==="
+                  $RESTIC check --read-data-subset=5%
+
+                  echo "=== snapshots ==="
+                  $RESTIC snapshots --tag wordpress
+              env:
+                - name: RESTIC_REPOSITORY
+                  value: "sftp:backup@192.168.1.174:/backup/restic"
+                - name: RESTIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: backup-secrets
+                      key: restic-password
+                - name: RESTIC_CACHE_DIR
+                  value: /cache
+              volumeMounts:
+                - name: dump
+                  mountPath: /dump
+                  readOnly: true
+                # readOnly: a backup job must never be able to modify the data it
+                # is backing up.
+                - name: wordpress-data
+                  mountPath: /var/www/html
+                  readOnly: true
+                - name: ssh
+                  mountPath: /ssh
+                  readOnly: true
+                - name: cache
+                  mountPath: /cache
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 1000m
+                  memory: 512Mi
+
+          volumes:
+            - name: dump
+              emptyDir: {}
+            - name: wordpress-data
+              persistentVolumeClaim:
+                claimName: wordpress-pvc
+                # The PV's node affinity pins this pod to the node holding the
+                # local-path volume, so no manual nodeSelector is needed. RWO
+                # permits a second pod on the SAME node, which is why this can
+                # mount alongside the running WordPress pod.
+                readOnly: true
+            - name: ssh
+              secret:
+                secretName: backup-secrets
+                defaultMode: 0400
+                items:
+                  - key: ssh-privatekey
+                    path: id_ed25519
+                  - key: known-hosts
+                    path: known_hosts
+            - name: cache
+              emptyDir: {}

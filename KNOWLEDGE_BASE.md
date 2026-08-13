@@ -723,7 +723,129 @@ GitHub-hosted runners are cloud VMs with no LAN access. They cannot reach Proxmo
 
 ---
 
-## 16. Next Steps: Secrets Management
+## 16. Backups (Phase 0)
+
+### Why this had to come first
+
+Both PVCs use the `local-path` provisioner: a directory on **one node**, no replication. Argo CD reconciles every manifest in this repo, but Git contains no post, plugin, theme, course, order or student record. Before the platform build (LMS, payments, camp signups) creates data that cannot be regenerated, that data needs a recovery path. A node disk failure was previously total loss.
+
+### Design
+
+| Item | Choice |
+|---|---|
+| Tool | `restic` — client-side encryption, deduplication, retention, integrity checking |
+| Destination | `sftp:backup@192.168.1.174:/backup/restic` (Proxmox host, off-cluster) |
+| Schedule | `0 15 * * *` UTC = 03:00 NZST |
+| Retention | 7 daily, 4 weekly, 6 monthly |
+| Contents | `mysqldump` of the WordPress DB + the entire `wordpress-pvc` |
+| Manifest | `kubernetes/wordpress/backup-cronjob.yaml` |
+
+Encryption is client-side, so the Proxmox host stores only ciphertext — relevant once backups contain children's registration details and payment records.
+
+**Stated limitation:** the Proxmox host also runs the VMs this cluster lives on. This covers node failure, PVC loss and accidental deletion. It does **not** cover the Proxmox host dying. True disaster recovery needs a second off-site repo (Cloudflare R2 was the alternative considered).
+
+### One-time setup
+
+**1. On the Proxmox host (192.168.1.174):**
+```bash
+sudo useradd -m -s /bin/bash backup
+sudo mkdir -p /backup/restic
+sudo chown -R backup:backup /backup
+```
+
+**2. Generate the SSH keypair** (on your workstation or the master node):
+```bash
+ssh-keygen -t ed25519 -f ./backup_key -N "" -C "k8s-wordpress-backup"
+ssh-copy-id -i ./backup_key.pub backup@192.168.1.174
+```
+
+**3. Capture the host key** — the CronJob uses `StrictHostKeyChecking=yes`, so this is required, not optional:
+```bash
+ssh-keyscan -t ed25519 192.168.1.174 > ./known_hosts
+```
+
+**4. Create the Secret** (never committed — same convention as `wordpress-secrets`):
+```bash
+kubectl create secret generic backup-secrets -n wordpress \
+  --from-literal=restic-password='<STRONG_PASSPHRASE>' \
+  --from-file=ssh-privatekey=./backup_key \
+  --from-file=known-hosts=./known_hosts
+```
+
+> **Store the restic passphrase somewhere outside the cluster.** Lose it and every backup is permanently unreadable — that is the point of client-side encryption, and there is no recovery path.
+
+**5. Clean up local key material:**
+```bash
+rm -f ./backup_key ./backup_key.pub ./known_hosts
+```
+
+### First run / manual trigger
+
+```bash
+kubectl create job -n wordpress --from=cronjob/wordpress-backup backup-manual-01
+kubectl logs -n wordpress -f job/backup-manual-01
+```
+
+Expected on first run: `repository not found - initialising`, then a backup, then `check` passing.
+
+### Restore procedure
+
+**An untested backup is not a backup.** Run this at least once.
+
+**1. Start a throwaway pod with repo access:**
+```bash
+kubectl run restic-restore -n wordpress --rm -it --restart=Never \
+  --image=restic/restic:latest \
+  --overrides='{"spec":{"volumes":[{"name":"ssh","secret":{"secretName":"backup-secrets","defaultMode":256,"items":[{"key":"ssh-privatekey","path":"id_ed25519"},{"key":"known-hosts","path":"known_hosts"}]}}],"containers":[{"name":"restic-restore","image":"restic/restic:latest","stdin":true,"tty":true,"command":["/bin/sh"],"volumeMounts":[{"name":"ssh","mountPath":"/ssh","readOnly":true}],"env":[{"name":"RESTIC_REPOSITORY","value":"sftp:backup@192.168.1.174:/backup/restic"},{"name":"RESTIC_PASSWORD","valueFrom":{"secretKeyRef":{"name":"backup-secrets","key":"restic-password"}}}]}]}}'
+```
+
+**2. Inside the pod:**
+```sh
+export RESTIC_SFTP_COMMAND="ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes backup@192.168.1.174 -s sftp"
+RESTIC="restic -o sftp.command=$RESTIC_SFTP_COMMAND"
+
+$RESTIC snapshots                          # list what exists
+$RESTIC restore latest --target /restore   # or --target /restore <snapshot-id>
+ls -la /restore/dump /restore/var/www/html
+```
+
+**3. Restore the database** (from the master node):
+```bash
+kubectl exec -i -n wordpress deploy/mariadb -- \
+  mariadb -u root -p"$MARIADB_ROOT_PASSWORD" < wordpress.sql
+```
+
+**4. Restore files** into the WordPress PVC:
+```bash
+kubectl cp ./html wordpress/<wordpress-pod>:/var/www/ -c wordpress
+```
+
+**5. Restart WordPress** so it re-reads state:
+```bash
+kubectl rollout restart deploy/wordpress -n wordpress
+```
+
+> Practise the restore into a scratch namespace before you ever need it in anger. The first time you run a restore should not be during an outage.
+
+### Verifying backups are actually running
+
+```bash
+kubectl get cronjob -n wordpress wordpress-backup     # LAST SCHEDULE column
+kubectl get jobs -n wordpress                          # COMPLETIONS should be 1/1
+kubectl logs -n wordpress job/<job-name>
+```
+
+**Recommended follow-up (not yet built):** a Prometheus alert on `kube_job_status_failed` for this CronJob. A backup that silently stops running is the classic failure mode — it looks identical to a working one until the day you need it. Given the earlier alert-flooding problems, this should be added as a single targeted rule, not a broad one.
+
+### Not covered by this CronJob
+
+- **MariaDB PVC** — not backed up directly; the `mysqldump` is the database's recovery path, which is the correct approach (a raw copy of live InnoDB files is not consistent).
+- **`monitoring` namespace** — Grafana dashboards and Prometheus data. Prometheus data is disposable; custom dashboards are not. Currently unprotected.
+- **Kubernetes Secrets** — `wordpress-secrets`, `cloudflared-token`, `backup-secrets`. These are recreated from `.env` by Ansible, so `.env` remains the single point of failure for credentials.
+
+---
+
+## 17. Next Steps: Secrets Management
 
 ### Current State
 

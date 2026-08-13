@@ -14,6 +14,12 @@ spec:
         - podSelector:
             matchLabels:
               app: wordpress
+        # The backup CronJob runs mariadb-dump against this pod. Without this
+        # entry Calico silently drops the connection and the dump hangs until
+        # the job times out - a backup that fails quietly is worse than none.
+        - podSelector:
+            matchLabels:
+              app: backup
       ports:
         - protocol: TCP
           port: 3306

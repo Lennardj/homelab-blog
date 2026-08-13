@@ -2049,6 +2049,68 @@ NetworkPolicy is Kubernetes' built-in firewall at the pod level. By default, all
 
 ---
 
+## Feature — Phase 0: encrypted off-cluster backups with restic
+
+### Why this was built before anything else
+
+The platform plan (LMS, payments, camp registrations) creates data that exists nowhere in Git. The cluster stores it on `local-path` PVCs — a directory on a single node with no replication. Two prior incidents established the pattern: Incident #23 (Helm release vanished; Argo CD rebuilt the namespace and ingress but not the Helm-managed resources) and the WordPress content gap noted during the root-domain switch.
+
+The through-line: **GitOps reconciles declarations, not data.** Argo CD guarantees the platform can be rebuilt. It guarantees nothing about what is on it. Taking payments and storing children's details on unbacked single-node storage would have been the actual risk in this project — not any of the plugin or licensing decisions.
+
+### Design decisions
+
+**restic over `mysqldump` + `tar.gz`.** Client-side encryption was the deciding factor: these backups will hold minors' registration data and payment records, and an unencrypted dump sitting on a host is a breach waiting for a reason. restic also brings deduplication (nightly fulls do not multiply storage), declarative retention (`forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6`), and `check --read-data-subset`, which verifies the data rather than assuming it.
+
+**Proxmox host over Cloudflare R2.** Chosen for a first iteration. The limitation is documented rather than glossed over: the Proxmox host runs the VMs the cluster lives on, so this covers node failure, PVC loss and accidental deletion — but not loss of the host itself. R2 remains the follow-up for genuine off-site recovery.
+
+**SFTP over NFS.** NFS would have required `nfs-common` on every node, which means editing `ansible/**`, which triggers the GitHub Actions pipeline that has been failing. SFTP keeps everything inside the container. Verified from the [official Dockerfile](https://raw.githubusercontent.com/restic/restic/master/docker/Dockerfile) that `restic/restic` installs `ca-certificates fuse openssh-client tzdata jq` — so the sftp backend works with no custom image and no registry to publish to.
+
+### The trap that would have failed silently
+
+The existing NetworkPolicy allowed ingress to MariaDB only from pods labelled `app: wordpress`:
+
+```yaml
+ingress:
+  - from:
+      - podSelector:
+          matchLabels:
+            app: wordpress
+    ports:
+      - protocol: TCP
+        port: 3306
+```
+
+The backup pod carries `app: backup`. Calico would have **dropped the connection silently** — not refused it. `mariadb-dump` would hang until the job timed out, and the failure mode is a CronJob that appears to run every night while producing nothing usable. Fixed by adding a second `podSelector` for `app: backup`.
+
+This is the general hazard with default-deny networking: adding a new workload that talks to a protected service fails by *hanging*, not by erroring, and the symptom appears nowhere near the cause.
+
+### Implementation details worth keeping
+
+**`MYSQL_PWD` instead of `--password=`.** A password passed as a command-line argument is visible in the process list to anything that can run `ps` in that container.
+
+**`StrictHostKeyChecking=yes` with a pre-seeded `known_hosts`.** The obvious shortcut is `accept-new`, but the pod filesystem is ephemeral — every nightly run would start with an empty `known_hosts` and blindly trust whatever answered. That is not host verification, it is a nightly MITM window. The host key is captured once with `ssh-keyscan` and shipped in the Secret.
+
+**`readOnly: true` on the PVC mount.** A backup job must never be able to modify what it is backing up.
+
+**No `nodeSelector` needed.** The local-path PV carries node affinity, so binding the PVC pins the pod to the correct node automatically. RWO permits a second pod on the *same* node, which is what lets the backup mount the volume alongside the running WordPress pod.
+
+**`concurrencyPolicy: Forbid`.** Two restic processes against one repository contend on locks.
+
+**Database dumped, not file-copied.** The MariaDB PVC is deliberately not backed up as raw files — a copy of live InnoDB files is not crash-consistent. `mariadb-dump --single-transaction` is the correct recovery path.
+
+**root credentials for the dump.** `--routines --triggers --events` require privileges the application user does not hold. Noted explicitly rather than left as an unexplained choice.
+
+### Interview talking points
+
+1. **Sequencing is a design decision.** Backups were built before the LMS, payments or camp signup, because every one of those creates irreplaceable data. Building features first and backups later means the window of maximum data value coincides with the window of zero protection.
+2. **Default-deny networking fails by hanging.** A NetworkPolicy drop is silent by design — no RST, no error, just a timeout. Any new workload added to a namespace with default-deny needs its policy entry considered up front, because the failure surfaces far from its cause.
+3. **"Off-cluster" is not binary.** Writing to the Proxmox host removes the node-failure and accidental-deletion risks but not the single-physical-machine risk. Naming precisely which failure modes a backup does and does not cover is more useful than calling it "off-site" and moving on.
+4. **Encryption changes who you have to trust.** Client-side encryption means the storage host never holds plaintext, so the backup target does not need to be as trusted as the source. The cost is a passphrase whose loss is unrecoverable — a real operational obligation, not a checkbox.
+5. **Verification belongs in the job.** `restic check --read-data-subset=5%` runs nightly. The classic backup failure is not corruption, it is a job that quietly stopped running months ago and looks identical to a healthy one until a restore is attempted.
+6. **Constraints shaped the architecture.** SFTP was chosen over NFS specifically because NFS meant touching `ansible/**` and triggering a known-broken CI pipeline. Working around a real constraint produced a design with fewer moving parts anyway.
+
+---
+
 ## Incident #24 — `ERR_TOO_MANY_REDIRECTS` on `/wp-admin/`: ingress-nginx discards Cloudflare's `X-Forwarded-Proto`
 
 **Symptom:** After moving the root domain to WordPress, `https://lennardjohn.org/` loaded fine (HTTP 200) but `https://lennardjohn.org/wp-admin/` failed in the browser with `ERR_TOO_MANY_REDIRECTS`.
