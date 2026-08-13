@@ -28,6 +28,21 @@ echo "== site identity =="
 wp option update blogname "Lennard V. John"
 wp option update blogdescription "Platform Engineer"
 
+# --- theme -------------------------------------------------------------------
+# The child theme is mounted into wp-content/themes/lennardjohn from a ConfigMap
+# (kubernetes/wordpress/theme-configmap.yaml), so it appears without ever being
+# uploaded. Activation is the only step that touches the database.
+echo "== theme =="
+if wp theme is-installed lennardjohn 2>/dev/null; then
+  if [ "$(wp theme get lennardjohn --field=status)" != "active" ]; then
+    wp theme activate lennardjohn
+  else
+    echo "  lennardjohn already active"
+  fi
+else
+  echo "  !! lennardjohn theme not found - is the ConfigMap mounted?" >&2
+fi
+
 # --- pages -------------------------------------------------------------------
 # Upsert by slug. `wp post create` would happily create a fifth page called
 # "About"; looking the slug up first is what makes this re-runnable.

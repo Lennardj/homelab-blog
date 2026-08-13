@@ -105,6 +105,13 @@ spec:
               mountPath: /usr/local/etc/php/conf.d/memory.ini
               subPath: memory.ini
               readOnly: true
+            # Child theme, mounted as a whole directory. The target does not
+            # exist in the image or on the PVC, so nothing is shadowed. Keeping
+            # the theme in Git means the design survives PVC loss and is
+            # reviewable in a diff, unlike a theme uploaded via wp-admin.
+            - name: child-theme
+              mountPath: /var/www/html/wp-content/themes/lennardjohn
+              readOnly: true
       volumes:
         - name: wordpress-data
           persistentVolumeClaim:
@@ -112,6 +119,9 @@ spec:
         - name: php-config
           configMap:
             name: wordpress-php-config
+        - name: child-theme
+          configMap:
+            name: wordpress-child-theme
 ---
 apiVersion: v1
 kind: Service
