@@ -12,7 +12,7 @@
 #   /var/www/html   - the WordPress PVC: uploads, plugins, themes
 #
 # WHERE IT GOES
-#   sftp:backup@192.168.1.174:/backup/restic  (Proxmox host, off-cluster)
+#   sftp:resticbackup@192.168.1.174:/backup/restic  (Proxmox host, off-cluster)
 #
 # restic encrypts client-side, so the Proxmox host never sees plaintext. This
 # matters: these backups will eventually contain children's registration details
@@ -24,7 +24,9 @@
 # disaster recovery a second off-site repository is needed.
 #
 # PREREQUISITES (one-time manual setup - see KNOWLEDGE_BASE.md "Phase 0"):
-#   1. backup user + /backup/restic directory on the Proxmox host
+#   1. resticbackup user + /backup/restic directory on the Proxmox host.
+#      NOT the stock Debian `backup` account (UID 34, /var/backups, nologin) -
+#      its home is not /home/backup and nologin blocks the SFTP subsystem.
 #   2. SSH keypair, public key in the backup user's authorized_keys
 #   3. `backup-secrets` Secret in this namespace (NOT in Git)
 apiVersion: batch/v1
@@ -127,7 +129,7 @@ spec:
                     -o StrictHostKeyChecking=yes \
                     -o IdentitiesOnly=yes \
                     -o BatchMode=yes \
-                    backup@192.168.1.174 -s sftp"
+                    resticbackup@192.168.1.174 -s sftp"
 
                   RESTIC="restic -o sftp.command=$RESTIC_SFTP_COMMAND"
 
@@ -160,7 +162,7 @@ spec:
                   $RESTIC snapshots --tag wordpress
               env:
                 - name: RESTIC_REPOSITORY
-                  value: "sftp:backup@192.168.1.174:/backup/restic"
+                  value: "sftp:resticbackup@192.168.1.174:/backup/restic"
                 - name: RESTIC_PASSWORD
                   valueFrom:
                     secretKeyRef:

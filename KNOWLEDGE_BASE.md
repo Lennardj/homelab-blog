@@ -734,7 +734,7 @@ Both PVCs use the `local-path` provisioner: a directory on **one node**, no repl
 | Item | Choice |
 |---|---|
 | Tool | `restic` — client-side encryption, deduplication, retention, integrity checking |
-| Destination | `sftp:backup@192.168.1.174:/backup/restic` (Proxmox host, off-cluster) |
+| Destination | `sftp:resticbackup@192.168.1.174:/backup/restic` (Proxmox host, off-cluster) |
 | Schedule | `0 15 * * *` UTC = 03:00 NZST |
 | Retention | 7 daily, 4 weekly, 6 monthly |
 | Contents | `mysqldump` of the WordPress DB + the entire `wordpress-pvc` |
@@ -746,38 +746,61 @@ Encryption is client-side, so the Proxmox host stores only ciphertext — releva
 
 ### One-time setup
 
-**1. On the Proxmox host (192.168.1.174):**
+Run everything from **k8s-master-01 (`192.168.1.70`)**: it already has `kubectl` and a working kubeconfig, it is on the same LAN as the Proxmox host, and the private key never leaves the cluster network.
+
 ```bash
-sudo useradd -m -s /bin/bash backup
-sudo mkdir -p /backup/restic
-sudo chown -R backup:backup /backup
+ssh lennard@192.168.1.70
 ```
 
-**2. Generate the SSH keypair** (on your workstation or the master node):
+**1. Generate the keypair on master:**
 ```bash
-ssh-keygen -t ed25519 -f ./backup_key -N "" -C "k8s-wordpress-backup"
-ssh-copy-id -i ./backup_key.pub backup@192.168.1.174
+ssh-keygen -t ed25519 -f ~/backup_key -N "" -C "k8s-wordpress-backup"
+cat ~/backup_key.pub          # copy this line for step 2
 ```
 
-**3. Capture the host key** — the CronJob uses `StrictHostKeyChecking=yes`, so this is required, not optional:
+**2. On the Proxmox host, create the user and install that public key.**
+
+> ⚠️ **Do not use the existing `backup` account.** Debian — and therefore Proxmox — ships a stock system account named `backup` (UID 34, home `/var/backups`, shell `/usr/sbin/nologin`). It is used for rotated system backups such as `/var/backups/dpkg.status.*`. Repurposing it breaks in two ways: its home is `/var/backups`, so SSH looks for `authorized_keys` somewhere other than `/home/backup`; and `nologin` blocks the SFTP subsystem outright, so restic can never connect. Use a dedicated `resticbackup` account instead.
+
+> `ssh-copy-id` does **not** work here either. `useradd` without `passwd` leaves the account locked with no password, so there is nothing to authenticate with in order to copy the key. Install it as root instead — and leaving the account password-less is the more secure end state, since it forces key-only access.
+
+Access the Proxmox root shell either over SSH, or via the web UI (`https://192.168.1.174:8006` → select the node → **Shell**) if root SSH is unavailable:
+
 ```bash
-ssh-keyscan -t ed25519 192.168.1.174 > ./known_hosts
+useradd -m -s /bin/bash resticbackup
+mkdir -p /backup/restic /home/resticbackup/.ssh
+echo 'ssh-ed25519 AAAA...  k8s-wordpress-backup' > /home/resticbackup/.ssh/authorized_keys   # paste from step 1
+chown -R resticbackup:resticbackup /backup /home/resticbackup/.ssh
+chmod 700 /home/resticbackup/.ssh
+chmod 600 /home/resticbackup/.ssh/authorized_keys
 ```
 
-**4. Create the Secret** (never committed — same convention as `wordpress-secrets`):
+**3. Back on master — verify the key works before going further:**
+```bash
+ssh -i ~/backup_key -o IdentitiesOnly=yes resticbackup@192.168.1.174 'echo OK; ls -ld /backup/restic'
+```
+If this does not print `OK`, stop and fix it here. Every later step assumes this connection works.
+
+**4. Capture the host key** — the CronJob uses `StrictHostKeyChecking=yes`, so this is required, not optional:
+```bash
+ssh-keyscan -t ed25519 192.168.1.174 > ~/known_hosts
+```
+
+**5. Create the Secret** (never committed — same convention as `wordpress-secrets`):
 ```bash
 kubectl create secret generic backup-secrets -n wordpress \
   --from-literal=restic-password='<STRONG_PASSPHRASE>' \
-  --from-file=ssh-privatekey=./backup_key \
-  --from-file=known-hosts=./known_hosts
+  --from-file=ssh-privatekey=$HOME/backup_key \
+  --from-file=known-hosts=$HOME/known_hosts
 ```
 
 > **Store the restic passphrase somewhere outside the cluster.** Lose it and every backup is permanently unreadable — that is the point of client-side encryption, and there is no recovery path.
 
-**5. Clean up local key material:**
+**6. Clean up key material on master:**
 ```bash
-rm -f ./backup_key ./backup_key.pub ./known_hosts
+shred -u ~/backup_key ~/backup_key.pub ~/known_hosts
 ```
+The private key now exists only inside the Kubernetes Secret.
 
 ### First run / manual trigger
 
@@ -796,12 +819,12 @@ Expected on first run: `repository not found - initialising`, then a backup, the
 ```bash
 kubectl run restic-restore -n wordpress --rm -it --restart=Never \
   --image=restic/restic:latest \
-  --overrides='{"spec":{"volumes":[{"name":"ssh","secret":{"secretName":"backup-secrets","defaultMode":256,"items":[{"key":"ssh-privatekey","path":"id_ed25519"},{"key":"known-hosts","path":"known_hosts"}]}}],"containers":[{"name":"restic-restore","image":"restic/restic:latest","stdin":true,"tty":true,"command":["/bin/sh"],"volumeMounts":[{"name":"ssh","mountPath":"/ssh","readOnly":true}],"env":[{"name":"RESTIC_REPOSITORY","value":"sftp:backup@192.168.1.174:/backup/restic"},{"name":"RESTIC_PASSWORD","valueFrom":{"secretKeyRef":{"name":"backup-secrets","key":"restic-password"}}}]}]}}'
+  --overrides='{"spec":{"volumes":[{"name":"ssh","secret":{"secretName":"backup-secrets","defaultMode":256,"items":[{"key":"ssh-privatekey","path":"id_ed25519"},{"key":"known-hosts","path":"known_hosts"}]}}],"containers":[{"name":"restic-restore","image":"restic/restic:latest","stdin":true,"tty":true,"command":["/bin/sh"],"volumeMounts":[{"name":"ssh","mountPath":"/ssh","readOnly":true}],"env":[{"name":"RESTIC_REPOSITORY","value":"sftp:resticbackup@192.168.1.174:/backup/restic"},{"name":"RESTIC_PASSWORD","valueFrom":{"secretKeyRef":{"name":"backup-secrets","key":"restic-password"}}}]}]}}'
 ```
 
 **2. Inside the pod:**
 ```sh
-export RESTIC_SFTP_COMMAND="ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes backup@192.168.1.174 -s sftp"
+export RESTIC_SFTP_COMMAND="ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes resticbackup@192.168.1.174 -s sftp"
 RESTIC="restic -o sftp.command=$RESTIC_SFTP_COMMAND"
 
 $RESTIC snapshots                          # list what exists
