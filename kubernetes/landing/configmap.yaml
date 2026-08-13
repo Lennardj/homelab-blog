@@ -10,7 +10,7 @@ data:
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Lennard John — Platform Engineer</title>
+        <title>Lennard V. John — Platform Engineer</title>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -198,7 +198,7 @@ data:
             <div class="terminal-body">
 
                 <div class="prompt">$ whoami</div>
-                <div class="name">Lennard John<span class="cursor"></span></div>
+                <div class="name">Lennard V. John<span class="cursor"></span></div>
                 <div class="role">Platform Engineer</div>
 
                 <hr class="divider">
