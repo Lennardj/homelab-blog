@@ -5,6 +5,19 @@ metadata:
   namespace: wordpress
 spec:
   replicas: 1
+  # Recreate, NOT the default RollingUpdate - for the same reason wordpress.yaml
+  # uses it. mariadb-pvc is ReadWriteOnce, which restricts the volume to a single
+  # NODE but still permits multiple pods on that node. A rolling update therefore
+  # starts a second mariadbd against the live data directory, and InnoDB refuses:
+  #   [ERROR] InnoDB: Unable to lock ./ibdata1 error: 11
+  # The new pod CrashLoopBackOffs forever while the old one keeps serving, so the
+  # rollout never completes. That file lock is the only thing standing between a
+  # rolling update and two database processes writing the same files.
+  #
+  # This was latent from the original deployment and only surfaced with the first
+  # pod-spec change to MariaDB (the Phase 2 memory increase).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: mariadb
