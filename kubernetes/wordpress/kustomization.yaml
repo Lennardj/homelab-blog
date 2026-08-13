@@ -4,7 +4,6 @@ namespace: wordpress
 resources:
   - namespace.yaml
   - php-config.yaml
-  - theme-configmap.yaml
   - pvc.yaml
   - mariadb.yaml
   - wordpress.yaml

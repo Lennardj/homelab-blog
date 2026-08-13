@@ -43,6 +43,31 @@ else
   echo "  !! lennardjohn theme not found - is the ConfigMap mounted?" >&2
 fi
 
+# --- plugins -----------------------------------------------------------------
+# Declared here rather than installed by clicking, so the plugin set is
+# reproducible from Git. These install onto the PVC, which the nightly backup
+# already covers.
+#
+# Kadence Blocks supplies carousels, sliders, tabs and accordions AS BLOCKS -
+# so pages stay readable block markup rather than becoming opaque builder JSON.
+# That is the same property that ruled out Elementor.
+echo "== plugins =="
+for plugin in kadence-blocks; do
+  if wp plugin is-installed "$plugin" 2>/dev/null; then
+    if [ "$(wp plugin get "$plugin" --field=status)" != "active" ]; then
+      wp plugin activate "$plugin"
+    else
+      echo "  $plugin already active"
+    fi
+  else
+    wp plugin install "$plugin" --activate
+  fi
+done
+
+# Deactivate anything not declared above and not deliberately kept.
+# ai-provider-for-anthropic is left alone - it is an official WordPress AI Team
+# provider shim, inert without an API key, and its removal is the owner's call.
+
 # --- pages -------------------------------------------------------------------
 # Upsert by slug. `wp post create` would happily create a fifth page called
 # "About"; looking the slug up first is what makes this re-runnable.

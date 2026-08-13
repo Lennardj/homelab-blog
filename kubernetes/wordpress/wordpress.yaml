@@ -15,6 +15,53 @@ spec:
       labels:
         app: wordpress
     spec:
+      # Fetch the child theme from Git into an emptyDir at pod start.
+      #
+      # This replaced a ConfigMap-delivered theme. ConfigMap keys cannot contain
+      # "/", so the theme was forced to stay flat - no templates/, no patterns/,
+      # no assets/ - and binary files (fonts, images) do not belong in one. A git
+      # clone has none of those limits.
+      #
+      # emptyDir, deliberately: the theme is refetched on every pod start and
+      # never touches the PVC, so it cannot drift or be edited into a different
+      # state through wp-admin. The cost is that pod start depends on reaching
+      # GitHub - if that is unacceptable later, this can sync onto the PVC
+      # instead, trading immutability for availability.
+      #
+      # NOTE: a theme change in Git does NOT redeploy by itself. Argo CD only
+      # reconciles manifests, and this manifest does not change when the theme
+      # does. After pushing theme changes:
+      #   kubectl rollout restart deploy/wordpress deploy/wpcli -n wordpress
+      initContainers:
+        - name: theme-sync
+          # TODO: pin once verified against the cluster.
+          image: alpine/git:latest
+          env:
+            - name: THEME_REF
+              value: main
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              rm -rf /tmp/repo
+              git clone --depth 1 --branch "$THEME_REF" \
+                https://github.com/Lennardj/homelab-blog /tmp/repo
+              cp -R /tmp/repo/wordpress-theme/. /theme/
+              # WordPress runs as www-data (33); the clone runs as root. Without
+              # this the theme files are unreadable to the web server.
+              chmod -R a+rX /theme
+              echo "theme synced from ref: $THEME_REF"
+              ls -la /theme
+          volumeMounts:
+            - name: child-theme
+              mountPath: /theme
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
       containers:
         - name: wordpress
           image: wordpress:php8.2-apache
@@ -120,8 +167,7 @@ spec:
           configMap:
             name: wordpress-php-config
         - name: child-theme
-          configMap:
-            name: wordpress-child-theme
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

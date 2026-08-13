@@ -1,0 +1,233 @@
+/*
+Theme Name: Lennard V. John
+Theme URI: https://lennardjohn.org
+Description: Terminal-accented child theme of Twenty Twenty-Five. Dark GitHub
+             palette with a terminal-green accent, monospace for headings and
+             UI chrome, readable sans for body copy.
+Author: Lennard V. John
+Template: twentytwentyfive
+Version: 1.0.0
+License: GPL-2.0-or-later
+Text Domain: lennardjohn
+*/
+
+/* ---------------------------------------------------------------------
+   Typography split.
+   theme.json sets sans as the body default. Headings, navigation, buttons
+   and code get mono - the terminal identity without making long-form
+   reading tiring. This is the whole design thesis in one rule set.
+   --------------------------------------------------------------------- */
+.wp-block-heading,
+.wp-block-navigation,
+.wp-block-button__link,
+.wp-block-preformatted,
+.wp-block-code,
+code, kbd, samp {
+  font-family: var(--wp--preset--font-family--mono);
+  letter-spacing: -0.01em;
+}
+
+/* ---------------------------------------------------------------------
+   Headings. h2 gets a shell prompt marker - cheap, and it carries the
+   terminal metaphor without any extra markup in the content files.
+   --------------------------------------------------------------------- */
+h1.wp-block-heading {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+h2.wp-block-heading {
+  color: var(--wp--preset--color--accent-1);
+  font-weight: 600;
+  margin-top: 2.5rem;
+}
+
+h2.wp-block-heading::before {
+  content: "$ ";
+  color: var(--wp--preset--color--accent-5);
+}
+
+/* Centred headings would look wrong with a left-anchored prompt. */
+h2.wp-block-heading.has-text-align-center::before {
+  content: none;
+}
+
+h3.wp-block-heading {
+  color: var(--wp--preset--color--contrast);
+  font-weight: 600;
+  margin-top: 1.75rem;
+}
+
+/* ---------------------------------------------------------------------
+   Terminal window chrome for the front page hero.
+   Drawn entirely in CSS: one pseudo-element paints all three dots using
+   box-shadow, the other paints the title bar text. No extra markup, and
+   nothing to keep in sync with the content files.
+   --------------------------------------------------------------------- */
+.terminal-window {
+  position: relative;
+  border: 1px solid var(--wp--preset--color--accent-4);
+  border-radius: 8px;
+  background: var(--wp--preset--color--accent-3);
+  padding: 3.5rem 2rem 2.5rem;
+  margin-top: 1.5rem;
+  box-shadow: 0 0 40px rgba(74, 222, 128, 0.05);
+}
+
+/* The three window dots. */
+.terminal-window::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  left: 16px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 20px 0 0 #ffbd2e, 40px 0 0 #28c840;
+}
+
+/* Title bar: caption + rule beneath it. */
+.terminal-window::after {
+  content: "lennard@homelab ~";
+  position: absolute;
+  top: 12px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--wp--preset--font-family--mono);
+  font-size: 0.75rem;
+  color: var(--wp--preset--color--accent-2);
+  border-bottom: 1px solid var(--wp--preset--color--accent-4);
+  padding-bottom: 12px;
+}
+
+/* Blinking cursor after the site owner's name on the front page. */
+.terminal-window h1.wp-block-heading::after {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.9em;
+  background: var(--wp--preset--color--accent-1);
+  margin-left: 4px;
+  vertical-align: text-bottom;
+  animation: lj-blink 1s step-end infinite;
+}
+
+@keyframes lj-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* Respect users who have asked for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .terminal-window h1.wp-block-heading::after { animation: none; }
+}
+
+/* ---------------------------------------------------------------------
+   Buttons - outlined green, filling on hover, as on the original page.
+   --------------------------------------------------------------------- */
+.wp-block-button__link {
+  border: 1px solid var(--wp--preset--color--accent-1);
+  background: transparent;
+  color: var(--wp--preset--color--accent-1);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  padding: 0.6rem 1.4rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.wp-block-button__link:hover,
+.wp-block-button__link:focus {
+  background: var(--wp--preset--color--accent-1);
+  color: var(--wp--preset--color--base);
+}
+
+/* ---------------------------------------------------------------------
+   Lists - accent markers, roomier line height than the default.
+   --------------------------------------------------------------------- */
+.wp-block-list {
+  line-height: 1.8;
+  padding-left: 1.2rem;
+}
+
+.wp-block-list li::marker {
+  color: var(--wp--preset--color--accent-1);
+}
+
+.wp-block-list strong {
+  color: var(--wp--preset--color--contrast);
+}
+
+/* ---------------------------------------------------------------------
+   Code / preformatted - panel background, accent text, horizontally
+   scrollable so a wide diagram never forces the page to scroll sideways.
+   --------------------------------------------------------------------- */
+.wp-block-preformatted,
+.wp-block-code {
+  background: var(--wp--preset--color--accent-3);
+  border: 1px solid var(--wp--preset--color--accent-4);
+  border-radius: 6px;
+  color: var(--wp--preset--color--accent-1);
+  padding: 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------------
+   Separators and links.
+   --------------------------------------------------------------------- */
+.wp-block-separator {
+  border: none;
+  border-top: 1px solid var(--wp--preset--color--accent-4);
+  opacity: 1;
+  margin: 2.5rem auto;
+}
+
+a:not(.wp-block-button__link) {
+  color: var(--wp--preset--color--accent-1);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:not(.wp-block-button__link):hover {
+  text-decoration-thickness: 2px;
+}
+
+/* ---------------------------------------------------------------------
+   Navigation - mono, muted until hovered.
+   --------------------------------------------------------------------- */
+.wp-block-navigation .wp-block-navigation-item__content {
+  color: var(--wp--preset--color--accent-2);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.wp-block-navigation .wp-block-navigation-item__content:hover {
+  color: var(--wp--preset--color--accent-1);
+}
+
+/* ---------------------------------------------------------------------
+   Columns on the front page - panelled cards.
+   --------------------------------------------------------------------- */
+.wp-block-columns .wp-block-column {
+  border: 1px solid var(--wp--preset--color--accent-4);
+  border-radius: 6px;
+  padding: 1.5rem;
+  background: var(--wp--preset--color--accent-3);
+}
+
+.wp-block-columns .wp-block-column h3.wp-block-heading {
+  margin-top: 0;
+  color: var(--wp--preset--color--accent-1);
+  font-size: 1rem;
+}
+
+/* Cards stack on narrow screens; drop the fixed padding a little. */
+@media (max-width: 781px) {
+  .wp-block-columns .wp-block-column { padding: 1.25rem; }
+  .terminal-window { padding: 3.25rem 1.25rem 2rem; }
+}
+

@@ -41,6 +41,38 @@ spec:
         # touches the database hangs instead of failing. See Incident #25.
         app: wpcli
     spec:
+      # Same theme sync as the wordpress deployment. WP-CLI scans the themes
+      # directory on ITS OWN filesystem, so without this `wp theme list` cannot
+      # see the theme and activation fails with "not found" while the live site
+      # renders it perfectly. Any file the web pod reads from a mount, the CLI
+      # pod needs the same mount to administer.
+      initContainers:
+        - name: theme-sync
+          image: alpine/git:latest
+          env:
+            - name: THEME_REF
+              value: main
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              rm -rf /tmp/repo
+              git clone --depth 1 --branch "$THEME_REF" \
+                https://github.com/Lennardj/homelab-blog /tmp/repo
+              cp -R /tmp/repo/wordpress-theme/. /theme/
+              chmod -R a+rX /theme
+              echo "theme synced from ref: $THEME_REF"
+          volumeMounts:
+            - name: child-theme
+              mountPath: /theme
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+
       # The cli image's entrypoint is `wp` itself, so it must be overridden to
       # keep the pod alive for exec.
       containers:
@@ -105,5 +137,4 @@ spec:
           persistentVolumeClaim:
             claimName: wordpress-pvc
         - name: child-theme
-          configMap:
-            name: wordpress-child-theme
+          emptyDir: {}
