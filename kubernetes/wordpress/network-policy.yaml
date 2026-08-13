@@ -20,6 +20,11 @@ spec:
         - podSelector:
             matchLabels:
               app: backup
+        # The WP-CLI runner. Every wp command that touches the database needs
+        # this; without it the connection is dropped silently and wp hangs.
+        - podSelector:
+            matchLabels:
+              app: wpcli
       ports:
         - protocol: TCP
           port: 3306

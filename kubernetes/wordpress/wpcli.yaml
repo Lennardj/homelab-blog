@@ -1,0 +1,95 @@
+# WP-CLI runner — a long-lived pod for administering WordPress.
+#
+# WHY A SEPARATE POD
+# The wordpress:php8.2-apache image ships no `wp` binary. The official
+# wordpress:cli image contains WP-CLI but not WordPress, and is designed to be
+# pointed at an existing install's files and database - which is exactly this.
+#
+# WHY IT CAN MOUNT THE SAME PVC AS THE RUNNING SITE
+# wordpress-pvc is ReadWriteOnce, which restricts the volume to a single NODE,
+# not a single pod. The local-path PV's node affinity pins this pod to the same
+# node as the WordPress pod automatically, so no nodeSelector is required and
+# both can mount it concurrently. (The same property caused Incident #26 - it is
+# a hazard for two database processes, but exactly what makes this work.)
+#
+# USAGE
+#   kubectl exec -n wordpress deploy/wpcli -- wp option get siteurl
+#   kubectl exec -n wordpress deploy/wpcli -- wp plugin list
+# Or via the repo wrapper: scripts/wp.sh option get siteurl
+#
+# To park it when not in use (it is idle and tiny, but this is here if wanted):
+#   kubectl scale deploy/wpcli -n wordpress --replicas=0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wpcli
+  namespace: wordpress
+spec:
+  replicas: 1
+  # Recreate for the same reason as wordpress and mariadb: single RWO volume,
+  # no reason to ever run two of these at once. See Incident #26.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: wpcli
+  template:
+    metadata:
+      labels:
+        # Required by the NetworkPolicy to reach MariaDB on 3306. Without this
+        # entry Calico DROPS the connection silently and every wp command that
+        # touches the database hangs instead of failing. See Incident #25.
+        app: wpcli
+    spec:
+      # The cli image's entrypoint is `wp` itself, so it must be overridden to
+      # keep the pod alive for exec.
+      containers:
+        - name: wpcli
+          image: wordpress:cli
+          command: ["/bin/sh", "-c", "sleep infinity"]
+          workingDir: /var/www/html
+          securityContext:
+            # uid/gid 33 = www-data, matching ownership of the files already on
+            # the PVC. Running as root would create root-owned files that the
+            # WordPress pod (running as www-data) could not later modify -
+            # a subtle way to break plugin and media uploads.
+            runAsUser: 33
+            runAsGroup: 33
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: mariadb:3306
+            - name: WORDPRESS_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: wordpress-secrets
+                  key: mariadb-database
+            - name: WORDPRESS_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: wordpress-secrets
+                  key: mariadb-user
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wordpress-secrets
+                  key: mariadb-password
+            # WORDPRESS_CONFIG_EXTRA is deliberately NOT set here. wp-config.php
+            # eval()s it at runtime, so setting it would make WP_HOME/WP_SITEURL
+            # override the database values - and WP-CLI would then report the
+            # constants rather than what is actually stored. Leaving it unset
+            # means `wp option get siteurl` shows the real database state, which
+            # is what an administrative tool should show.
+          volumeMounts:
+            - name: wordpress-data
+              mountPath: /var/www/html
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: wordpress-data
+          persistentVolumeClaim:
+            claimName: wordpress-pvc

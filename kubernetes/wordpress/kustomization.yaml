@@ -11,3 +11,4 @@ resources:
   - root-ingress.yaml
   - network-policy.yaml
   - backup-cronjob.yaml
+  - wpcli.yaml
