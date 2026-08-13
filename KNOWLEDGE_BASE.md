@@ -469,6 +469,12 @@ INGRESS_IP=192.168.1.70
 - **Grafana 503 from nginx — Helm release vanished**: `describe ingress` showed `<error: endpoints "kube-prometheus-stack-grafana" not found>` and the entire `monitoring` namespace was empty (no pods, no services). The ingress + namespace survived (they're managed via `kubernetes/monitoring/kustomization.yaml`), but the Helm-managed resources were gone. Likely cause: failed helm upgrade or manual removal. Fix: re-run `helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring --create-namespace --values values.yaml --set grafana.adminPassword=... --set alertmanager.config.global.smtp_auth_password=...` directly on master (no Ansible/runner needed — master has `helm` + `kubectl`). WordPress PVCs in separate namespace were unaffected.
 - **Browser still shows 503 after fix**: Browsers cache 503 responses. `curl -vk https://grafana.lennardjohn.org` returning `HTTP/1.1 302 Found → Location: /login` confirms Grafana is healthy — the browser just needs a hard refresh (`Ctrl+Shift+R`) or incognito window to clear the cached error.
 
+### Backups
+- **`root` cannot be used for `mariadb-dump` from another pod**: the `mariadb` image grants `root@localhost` only. A cross-pod connection fails with `Access denied for user 'root'@'<pod-ip>' (using password: YES)` even when the password is correct. Use the `wordpress` app user, which holds `ALL PRIVILEGES` on its own database. `--routines`/`--events` must be dropped (the app user lacks those privileges, and a stock WordPress schema has neither).
+- **Restore uses root, backup does not**: `kubectl exec` into the MariaDB pod runs *inside* the container, where `root@localhost` is valid. This asymmetry is intentional.
+- **Short-lived Job logs disappear**: failed backup pods are cleaned up within seconds. Capture with `kubectl create job ... ; sleep 15 ; kubectl logs -l job-name=<name> --all-containers=true --prefix=true`. `kubectl logs -f job/<name>` attaches to the first container only and fails while an initContainer is still running.
+- **`kubectl create job --from=cronjob/...` uses the deployed spec, not Git**: creating a test job before Argo CD has synced silently re-runs the old version and reproduces the original error. Gate on observed cluster state before testing.
+
 ### Ansible Bootstrap
 - **Helm** is installed in `cluster-services.yml` (playbook #2) so it is available to all subsequent playbooks (`deploy-cert-manager.yml`, `deploy-monitoring.yml`, etc.). Uses `creates: /usr/local/bin/helm` for idempotency.
 - `unattended-upgrades`, `apt-daily.timer`, and `apt-daily-upgrade.timer` are all stopped and disabled before any `apt` task runs. Stopping the service alone is not enough — the timers restart it. All three must be disabled to keep apt clear for the full playbook run.
@@ -737,7 +743,8 @@ Both PVCs use the `local-path` provisioner: a directory on **one node**, no repl
 | Destination | `sftp:resticbackup@192.168.1.174:/backup/restic` (Proxmox host, off-cluster) |
 | Schedule | `0 15 * * *` UTC = 03:00 NZST |
 | Retention | 7 daily, 4 weekly, 6 monthly |
-| Contents | `mysqldump` of the WordPress DB + the entire `wordpress-pvc` |
+| Contents | `mariadb-dump` of the WordPress DB + the entire `wordpress-pvc` |
+| DB credential | The **`wordpress` app user**, not root — the mariadb image only grants `root@localhost`, so root cannot authenticate from another pod |
 | Manifest | `kubernetes/wordpress/backup-cronjob.yaml` |
 
 Encryption is client-side, so the Proxmox host stores only ciphertext — relevant once backups contain children's registration details and payment records.
@@ -832,11 +839,15 @@ $RESTIC restore latest --target /restore   # or --target /restore <snapshot-id>
 ls -la /restore/dump /restore/var/www/html
 ```
 
-**3. Restore the database** (from the master node):
+**3. Restore the database** (from the master node). Read the password out of the Secret — `$MARIADB_ROOT_PASSWORD` is not set in your shell on master, and would silently expand to an empty string:
 ```bash
+ROOT_PW=$(kubectl get secret -n wordpress wordpress-secrets \
+  -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
+
 kubectl exec -i -n wordpress deploy/mariadb -- \
-  mariadb -u root -p"$MARIADB_ROOT_PASSWORD" < wordpress.sql
+  mariadb -u root -p"$ROOT_PW" < wordpress.sql
 ```
+root works here because `kubectl exec` runs *inside* the MariaDB pod, and the image grants `root@localhost`. That is exactly why the backup job cannot use root — see Incident #25.
 
 **4. Restore files** into the WordPress PVC:
 ```bash

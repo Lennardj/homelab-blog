@@ -2049,6 +2049,94 @@ NetworkPolicy is Kubernetes' built-in firewall at the pod level. By default, all
 
 ---
 
+## Incident #25 — Backup CronJob bring-up: three failures, and the diagnostic that found them
+
+The backup CronJob failed on every run for its first four attempts. Each failure had a different cause, and the first two were invisible because the pod deleted itself within ~20 seconds.
+
+### Failure 0 — losing the evidence
+
+```
+kubectl logs -n wordpress -f job/backup-manual-01
+Error from server (BadRequest): container "restic" in pod "..." is waiting to start: PodInitializing
+kubectl logs -n wordpress -f job/backup-manual-01
+error: timed out waiting for the condition
+```
+
+`kubectl logs -f` on a Job defaults to the *first* container. With an initContainer still running, there is nothing to attach to, and by the time the command was retried the pod had failed, hit `backoffLimit`, and been cleaned up. Two runs produced zero diagnostic information.
+
+**The technique that fixed this:**
+
+```bash
+kubectl create job -n wordpress --from=cronjob/wordpress-backup backup-manual-03
+sleep 15
+kubectl logs -n wordpress -l job-name=backup-manual-03 --all-containers=true --prefix=true --tail=100
+```
+
+`--all-containers` captures init and main containers together, `--prefix` labels which is which, and the fixed `sleep` beats the cleanup. This turned "the pod died and I don't know why" into an exact error message in one command. For short-lived, self-deleting workloads, capture logs on a timer rather than trying to attach to them.
+
+### Failure 1 — shell word-splitting destroyed the SFTP command
+
+```sh
+RESTIC="restic -o sftp.command=$SFTP_CMD"
+$RESTIC snapshots
+```
+
+`$SFTP_CMD` contains spaces (`ssh -i /ssh/id_ed25519 -o ...`). Unquoted expansion of `$RESTIC` splits on every one of them, so restic received `-o sftp.command=ssh` and then parsed `-i`, `/ssh/id_ed25519` and the remaining ssh flags as its own arguments.
+
+A shell variable cannot hold a command with embedded spaces and be re-expanded safely. The fix is a function, where the option can stay quoted and `"$@"` forwards the subcommand intact:
+
+```sh
+r() {
+  restic -o "sftp.command=$SFTP_CMD" "$@"
+}
+r snapshots
+```
+
+### Failure 2 — root is localhost-only in the MariaDB image
+
+```
+mariadb-dump: Got error: 1045: "Access denied for user 'root'@'10.96.140.20'
+(using password: YES)" when trying to connect
+```
+
+The password was correct. The grant was not: the official `mariadb` image creates `root@localhost`, so root cannot authenticate from any other pod. The source IP in the error (`10.96.140.20`, a pod address in the Calico range) is the giveaway — the connection arrived over the network, not the socket.
+
+The original justification for using root was that `--routines`, `--triggers` and `--events` need elevated privileges. That reasoning did not survive contact with the requirement: **a stock WordPress schema contains no stored routines and no scheduled events**, so those flags backed up nothing. The `wordpress` user holds `ALL PRIVILEGES` on its own database — including `TRIGGER` — and demonstrably connects cross-pod, because that is how the site itself works.
+
+Fix: dump as the application user with `--single-transaction --quick --triggers`, dropping `--routines` and `--events`. Least privilege turned out to be both more correct and more functional than the elevated credential.
+
+Note the asymmetry this creates, which is *not* a contradiction: the **restore** runbook does use root, via `kubectl exec` into the MariaDB pod. That executes inside the container, where `root@localhost` is exactly the grant that exists.
+
+### Failure 3 — testing the old spec
+
+```
+not synced yet
+job.batch/backup-manual-04 created
+mariadb-dump: Got error: 1045: "Access denied for user 'root'@'10.96.140.21'
+```
+
+The credential fix was already committed and pushed, but Argo CD had not yet reconciled it. `kubectl create job --from=cronjob/...` snapshots the CronJob **as currently deployed in the cluster**, not as it exists in Git — so the job faithfully re-ran the old, broken spec and reproduced the identical error.
+
+The guard is to block on the sync rather than assume it:
+
+```bash
+until kubectl get cronjob -n wordpress wordpress-backup -o yaml | grep -q MARIADB_USER; do
+  echo "waiting for argo..."; sleep 15
+done
+```
+
+Or force it: `kubectl -n argocd patch app wordpress --type merge -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'`
+
+### Interview talking points
+
+1. **Preserving evidence is step one.** Two debugging cycles were wasted because the pod deleted itself before its logs could be read. With ephemeral workloads, the first move is to make the failure observable — `--all-containers --prefix` on a timer — not to start guessing at causes.
+2. **A variable is not a command.** Storing a multi-word command in a shell variable and re-expanding it unquoted is one of the oldest bugs in shell scripting. Functions with `"$@"` are the correct construct because quoting survives.
+3. **"Access denied" is about identity, not just secrets.** In MySQL/MariaDB the account is `user@host`; `root@localhost` and `root@%` are different accounts with different grants. The client IP embedded in the error message tells you which one was attempted, and that it arrived over TCP rather than the local socket.
+4. **Interrogate privilege escalation.** Reaching for root was justified by a requirement (`--routines --events`) that did not actually apply to this schema. When elevated credentials appear necessary, check whether the feature needing them is one you actually use — the least-privilege path was simultaneously simpler and the only one that worked.
+5. **In GitOps, pushed is not deployed.** There is a real window between `git push` and reconciliation. Any test run inside that window silently exercises the previous version, and the identical error message makes it look like the fix failed rather than that it was never applied. Gate tests on observed cluster state, never on having pushed.
+
+---
+
 ## Feature — Phase 0: encrypted off-cluster backups with restic
 
 ### Why this was built before anything else
