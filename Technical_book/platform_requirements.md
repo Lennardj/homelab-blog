@@ -151,8 +151,7 @@ This is not legal advice; for the safeguarding and privacy specifics of running 
 
 **Phase 1 — ✅ Done.** Root domain serves WordPress.
 
-**Phase 2 — Resource headroom.** Raise WordPress/MariaDB container limits and PHP `memory_limit`. Verify node capacity first. Single revertible commit.
-*Est. 2 hours.*
+**Phase 2 — ✅ Done 2026-08-14.** WordPress and MariaDB container limits raised to 1Gi, PHP `memory_limit` to 512M via ConfigMap, plus `WP_MEMORY_LIMIT`/`WP_MAX_MEMORY_LIMIT`. Sized against measured usage (wordpress 112Mi, mariadb 146Mi, ~1.4Gi free per node; the two pods sit on different workers). Verified in-container. Surfaced and fixed a latent MariaDB `RollingUpdate` deadlock — see Incident #26.
 
 **Phase 3 — Landing content (R1).** About, teaching experience, technical expertise, navigation tabs. Pure WordPress content, no new infrastructure. Delivers visible value early.
 *Est. 1–2 days.*

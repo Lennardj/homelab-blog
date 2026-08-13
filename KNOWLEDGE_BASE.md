@@ -216,14 +216,17 @@ Browser → Cloudflare DNS → Cloudflare Edge
 
 **MariaDB**
 - Image: `mariadb:11`
-- Resources: 100m/500m CPU, 256Mi/512Mi memory
+- Resources: 100m/500m CPU, 256Mi request / **1Gi limit** memory (Phase 2)
+- Deployment strategy: **`Recreate`** — mandatory. `mariadb-pvc` is ReadWriteOnce, which restricts the volume to one *node* but still allows multiple pods on that node. A rolling update starts a second `mariadbd` against the live data directory and InnoDB refuses with `Unable to lock ./ibdata1 error: 11`, so the new pod CrashLoopBackOffs while the old one keeps serving and the rollout never completes. See Incident #26
 - PVC: 8Gi (local-path)
 - Probes: TCP 3306 (liveness 60s delay, readiness 30s delay)
 - Env from secret: `wordpress-secrets`
 
 **WordPress**
 - Image: `wordpress:php8.2-apache`
-- Resources: 100m/500m CPU, 128Mi/512Mi memory
+- Resources: 100m/1000m CPU, 256Mi request / **1Gi limit** memory (Phase 2)
+- PHP `memory_limit`: **512M**, via the `wordpress-php-config` ConfigMap mounted with `subPath` at `/usr/local/etc/php/conf.d/memory.ini`. Verified in-container with `php -r 'echo ini_get("memory_limit");'`. `subPath` mounts do **not** receive ConfigMap updates — changing it requires `kubectl rollout restart deploy/wordpress -n wordpress`
+- Three ceilings must agree, and raising only one does nothing: PHP `memory_limit` ≥ `WP_MAX_MEMORY_LIMIT` ≥ `WP_MEMORY_LIMIT`, all under the container limit. WordPress defaults `WP_MEMORY_LIMIT` to 40M and `WP_MAX_MEMORY_LIMIT` to 256M regardless of what php.ini permits
 - PVC: 8Gi (local-path)
 - Deployment strategy: `Recreate` — required because `wordpress-pvc` is ReadWriteOnce; rolling update would deadlock (new pod can't mount PVC held by old pod on different node)
 - Liveness: TCP port 80 (60s delay)
@@ -247,6 +250,14 @@ Browser → Cloudflare DNS → Cloudflare Edge
 **Why a separate Ingress object rather than adding a host to `ingress.yaml`:** the original blog route stays byte-for-byte unmodified, so rollback cannot corrupt it. Two Ingresses in the same namespace pointing at the same Service is perfectly valid.
 
 **Why `WORDPRESS_CONFIG_EXTRA` instead of editing the database:** WordPress stores `siteurl`/`home` in the `wp_options` table. The usual domain move is a SQL `UPDATE` plus a search-replace, which is destructive and easy to get wrong (a bad value locks you out of `/wp-admin`). `WP_HOME`/`WP_SITEURL` defined in `wp-config.php` **override** the database values without touching them. The config is declarative, lives in Git, is owned by Argo CD, and reverts with `git revert`. The database is never modified, so rollback is guaranteed clean.
+
+**How `WORDPRESS_CONFIG_EXTRA` reaches an already-installed site:** the persisted `wp-config.php` on the PVC contains, near the end:
+```php
+if ($configExtra = getenv_docker('WORDPRESS_CONFIG_EXTRA', '')) { eval($configExtra); }
+```
+It is evaluated at **runtime, on every request** — the file is not regenerated. That is why a `wp-config.php` dated before a change still honours it, and why editing the env var takes effect on the next pod start with no file surgery.
+
+Note also that the image's own `wp-config-docker.php` already ships a proxy-HTTPS block (`if X-Forwarded-Proto === 'https' then $_SERVER['HTTPS'] = 'on'`). That is the *conditional* form which does not work behind ingress-nginx — see below. The `WORDPRESS_CONFIG_EXTRA` block is eval'd afterwards, so the unconditional assignment overrides it.
 
 **Why `$_SERVER['HTTPS']` must be forced on:** Cloudflare terminates TLS at the edge and the tunnel speaks plain HTTP to `ingress-nginx`. PHP therefore sees `HTTPS` unset while `WP_SITEURL` says `https://`. WordPress compares the two, decides the request is on the wrong scheme, and issues a redirect — which arrives back over HTTP and redirects again. That is an infinite redirect loop (`ERR_TOO_MANY_REDIRECTS`), which showed up on `/wp-admin/` while `/` still returned 200.
 

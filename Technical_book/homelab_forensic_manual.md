@@ -2049,6 +2049,68 @@ NetworkPolicy is Kubernetes' built-in firewall at the pod level. By default, all
 
 ---
 
+## Incident #26 — MariaDB rollout deadlock: `RollingUpdate` against a ReadWriteOnce PVC
+
+**Symptom:** After the Phase 2 memory increase, WordPress rolled out cleanly but MariaDB did not:
+
+```
+kubectl rollout status deploy/mariadb -n wordpress --timeout=300s
+Waiting for deployment "mariadb" rollout to finish: 1 old replicas are pending termination...
+error: timed out waiting for the condition
+```
+
+```
+mariadb-54445b89cc-kn4vp   0/1   CrashLoopBackOff   6 (16s ago)   9m41s   k8s-worker-1
+mariadb-57b6fc8774-rtzht   1/1   Running            1 (6d16h ago) 6d16h   k8s-worker-1
+```
+
+Both pods on the same node. The site stayed up throughout — the old pod kept serving.
+
+**Diagnostic:**
+
+```
+kubectl get deploy -n wordpress mariadb   -o jsonpath="{.spec.strategy.type}"  → RollingUpdate
+kubectl get deploy -n wordpress wordpress -o jsonpath="{.spec.strategy.type}"  → Recreate
+```
+
+The asymmetry was the whole answer. Confirmed in the crashing pod's logs:
+
+```
+[ERROR] InnoDB: Unable to lock ./ibdata1 error: 11
+[Note]  InnoDB: Check that you do not already have another mariadbd process using
+        the same InnoDB data or log files.
+[ERROR] InnoDB: Plugin initialization aborted with error Generic error
+[ERROR] Failed to initialize plugins.
+[ERROR] Aborting
+```
+
+**Root cause:** ReadWriteOnce does not mean "one pod". It means **one node**. Multiple pods scheduled to that same node may all mount the volume simultaneously. The local-path PV pins every MariaDB pod to `k8s-worker-1`, so a rolling update did not fail to schedule — it succeeded, mounted the live data directory, and started a second `mariadbd` against files already open by the running instance.
+
+`error: 11` is `EAGAIN` — the advisory lock on `ibdata1` is held. **InnoDB's file lock is the only thing that prevented two database processes writing the same files.** The CrashLoopBackOff is the safety mechanism working, not the failure.
+
+`Recreate` was already applied to WordPress for exactly this reason and is documented in the knowledge base. MariaDB never received it. The bug was latent from the original deployment and could only surface on the first change to the MariaDB **pod spec** — the Phase 2 memory increase was the first such change in the deployment's life.
+
+**Fix** — `kubernetes/wordpress/mariadb.yaml`:
+
+```yaml
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+```
+
+After sync: `deployment "mariadb" successfully rolled out`.
+
+**Interview talking points:**
+
+1. **ReadWriteOnce is a node-scoped guarantee, not a pod-scoped one.** This is one of the most commonly misread parts of the Kubernetes storage model. RWO permits many pods on one node to mount the same volume — which is precisely what makes rolling updates dangerous for any single-writer workload on RWO storage. (`ReadWriteOncePod`, added in 1.22 and GA in 1.29, is the access mode that actually means one pod.)
+2. **Latent bugs surface on the first change, not at deploy time.** The wrong strategy sat harmlessly in Git for the deployment's entire life because nothing had ever triggered a pod replacement. Config that is never exercised is untested config, and the day it is exercised is rarely a convenient one.
+3. **Inconsistency between two similar objects is a strong signal.** WordPress and MariaDB are the same shape — single replica, RWO PVC, same namespace — yet had different strategies. One command comparing the two found the cause. When one of a matched pair works and the other does not, diff them before reading logs.
+4. **The failure was safe because a lower layer was defensive.** InnoDB refused to open files another process held. Kubernetes would happily have run two database processes on one data directory; the database prevented it. Understanding which layer is actually protecting your data matters when reasoning about what "it didn't break" proves.
+5. **Stateful workloads want StatefulSets.** A Deployment with an RWO PVC is a workable compromise for a single-instance database, but the correct primitive provides ordered, one-at-a-time replacement by design rather than by remembering to set `strategy: Recreate`.
+
+---
+
 ## Incident #25 — Backup CronJob bring-up: three failures, and the diagnostic that found them
 
 The backup CronJob failed on every run for its first four attempts. Each failure had a different cause, and the first two were invisible because the pod deleted itself within ~20 seconds.
