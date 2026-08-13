@@ -69,28 +69,37 @@ spec:
                   set -eu
                   # MYSQL_PWD keeps the password out of the process list, where
                   # --password=... would expose it to anything running `ps`.
-                  export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"
+                  export MYSQL_PWD="$MARIADB_PASSWORD"
                   mariadb-dump \
                     --host=mariadb \
-                    --user=root \
+                    --user="$MARIADB_USER" \
                     --single-transaction \
                     --quick \
-                    --routines \
                     --triggers \
-                    --events \
                     --databases "$MARIADB_DATABASE" \
                     > /dump/wordpress.sql
                   echo "dump complete: $(du -h /dump/wordpress.sql | cut -f1)"
               env:
-                # root is used rather than the wordpress user because --routines,
-                # --triggers and --events require privileges the application user
-                # does not hold. The credential is already present in this
-                # namespace and the job is an administrative workload.
-                - name: MARIADB_ROOT_PASSWORD
+                # The application user, NOT root. The mariadb image only grants
+                # root@localhost, so root cannot authenticate from another pod:
+                #   Access denied for user 'root'@'10.96.140.20' (using password: YES)
+                # The wordpress user is granted ALL PRIVILEGES on its own database
+                # and already connects cross-pod (that is how the site works), so
+                # it can dump that database including triggers.
+                #
+                # --routines and --events were dropped: they need privileges on
+                # mysql.proc / EVENT which the app user lacks, and a stock
+                # WordPress schema contains neither stored routines nor events.
+                - name: MARIADB_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: wordpress-secrets
-                      key: mariadb-root-password
+                      key: mariadb-password
+                - name: MARIADB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: wordpress-secrets
+                      key: mariadb-user
                 - name: MARIADB_DATABASE
                   valueFrom:
                     secretKeyRef:
