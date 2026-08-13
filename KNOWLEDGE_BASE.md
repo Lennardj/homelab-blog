@@ -307,6 +307,27 @@ Note `selfHeal: true` will revert manual changes once Argo CD is healthy again �
 - Usage: `kubectl exec -n wordpress deploy/wpcli -- wp <args>`, or `scripts/wp.sh <args>`
 - Park with `kubectl scale deploy/wpcli -n wordpress --replicas=0`
 
+### Design: child theme via ConfigMap
+
+The site's design is a **child theme of `twentytwentyfive`, delivered as a ConfigMap** (`kubernetes/wordpress/theme-configmap.yaml`) and mounted at `wp-content/themes/lennardjohn/`. Three flat files: `style.css`, `theme.json`, `functions.php`.
+
+**Why not upload a theme through wp-admin:** an uploaded theme lives only on the PVC — not in Git, not managed by Argo CD, and gone with the volume. As a ConfigMap the design is declarative, diffable, and survives PVC loss.
+
+**Why not Elementor:** it stores page designs as serialized JSON in `_elementor_data` — opaque and unreviewable. `theme.json` plus block markup is plain text.
+
+**Design tokens** (ported from the retired static landing page): background `#0d1117`, text `#c9d1d9`, terminal green `#4ade80`, panel `#161b22`, border `#30363d`, muted `#8b949e`.
+
+Monospace is used for headings, navigation, buttons and code; a system sans for body copy. The original page was all-monospace, which is fine for 40 words but tiring across the long About and Projects pages.
+
+**The ConfigMap must be mounted on BOTH pods.** The `wordpress` pod needs it to serve the theme; the `wpcli` pod needs it to *see* the theme. WP-CLI scans the themes directory on its own filesystem — without the mount, `wp theme list` does not show `lennardjohn` and activation fails with "not found" while the live site renders it perfectly. **General rule: any file the web pod reads from a mount, the CLI pod needs the same mount to administer.**
+
+**Constraints this delivery imposes:**
+- ConfigMaps cap at ~1MB — fine for CSS/JSON, not for fonts or images
+- Keys cannot contain `/`, so the theme must stay **flat**; custom block templates (`templates/*.html`) would need a different delivery
+- No webfonts are loaded; font stacks use fonts already on the visitor's system, avoiding a third-party request per page view
+
+Changing the design = edit the ConfigMap, commit, let Argo CD sync. The WordPress pod restarts (whole-directory ConfigMap mounts do update in place, but a restart guarantees PHP opcache is cleared).
+
 ### Site content (Phase 3)
 
 Baseline page content is **version-controlled** in `wordpress-content/` as Gutenberg block markup (plain HTML with `<!-- wp:… -->` delimiters), applied by `scripts/wp-bootstrap.sh`.
