@@ -123,30 +123,34 @@ spec:
                   # pod filesystem is ephemeral, so accept-new would re-trust the
                   # host on every single run - which is not host verification at
                   # all, just a silent MITM window every night.
-                  export RESTIC_SFTP_COMMAND="ssh \
-                    -i /ssh/id_ed25519 \
-                    -o UserKnownHostsFile=/ssh/known_hosts \
-                    -o StrictHostKeyChecking=yes \
-                    -o IdentitiesOnly=yes \
-                    -o BatchMode=yes \
-                    resticbackup@192.168.1.174 -s sftp"
+                  SFTP_CMD="ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes resticbackup@192.168.1.174 -s sftp"
 
-                  RESTIC="restic -o sftp.command=$RESTIC_SFTP_COMMAND"
+                  # A FUNCTION, not a variable. The first version of this used
+                  #   RESTIC="restic -o sftp.command=$SFTP_CMD"
+                  #   $RESTIC snapshots
+                  # which word-splits on the spaces inside SFTP_CMD: restic then
+                  # receives `-o sftp.command=ssh` and parses the remaining ssh
+                  # flags as its own arguments, failing immediately. Quoting the
+                  # option inside a function keeps it as a single argument, and
+                  # "$@" forwards the subcommand untouched.
+                  r() {
+                    restic -o "sftp.command=$SFTP_CMD" "$@"
+                  }
 
                   # Initialise the repository on first run only. `snapshots`
                   # succeeding proves the repo exists AND the password decrypts it.
-                  if ! $RESTIC snapshots > /dev/null 2>&1; then
+                  if ! r snapshots > /dev/null 2>&1; then
                     echo "repository not found - initialising"
-                    $RESTIC init
+                    r init
                   fi
 
                   echo "=== backup ==="
-                  $RESTIC backup /dump /var/www/html \
+                  r backup /dump /var/www/html \
                     --tag wordpress \
                     --host lennardjohn
 
                   echo "=== retention ==="
-                  $RESTIC forget \
+                  r forget \
                     --tag wordpress \
                     --keep-daily 7 \
                     --keep-weekly 4 \
@@ -156,10 +160,10 @@ spec:
                   # Verify integrity, reading a sample of the actual data rather
                   # than only metadata. An unverified backup is an assumption.
                   echo "=== verify ==="
-                  $RESTIC check --read-data-subset=5%
+                  r check --read-data-subset=5%
 
                   echo "=== snapshots ==="
-                  $RESTIC snapshots --tag wordpress
+                  r snapshots --tag wordpress
               env:
                 - name: RESTIC_REPOSITORY
                   value: "sftp:resticbackup@192.168.1.174:/backup/restic"
