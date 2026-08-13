@@ -7,4 +7,5 @@ resources:
   - mariadb.yaml
   - wordpress.yaml
   - ingress.yaml
+  - root-ingress.yaml
   - network-policy.yaml

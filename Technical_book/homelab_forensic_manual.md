@@ -2049,6 +2049,127 @@ NetworkPolicy is Kubernetes' built-in firewall at the pod level. By default, all
 
 ---
 
+## Feature — Root domain moved from static landing page to WordPress
+
+### What was built
+
+`lennardjohn.org` was a static nginx page served from a ConfigMap. It now serves WordPress — the same instance already running at `blog.lennardjohn.org`. This is phase 1 of turning the root domain into a platform (Tutor LMS learning platform, resume, projects, "currently working on", and a kids' holiday tech camp signup).
+
+### Why reuse the existing WordPress instead of deploying a second one
+
+A second WordPress at the root domain would mean another WordPress pod, another MariaDB pod, and two more PVCs — roughly 700Mi of additional memory on a cluster that has already had OOM problems on the worker nodes (commits `increase memory size on worker nodes`, `i increase the memory on node now monitor pods just crash`). Reusing the existing instance costs nothing: one Service, one database, one PVC, two Ingress objects.
+
+### Before / after
+
+Before — `kubernetes/landing/kustomization.yaml`:
+```yaml
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - ingress.yaml
+```
+
+After:
+```yaml
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  # - ingress.yaml
+```
+
+New file — `kubernetes/wordpress/root-ingress.yaml`:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wordpress-root
+  namespace: wordpress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - lennardjohn.org
+      secretName: wordpress-root-tls
+  rules:
+    - host: lennardjohn.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wordpress
+                port:
+                  number: 80
+```
+
+Added to `kubernetes/wordpress/wordpress.yaml`:
+```yaml
+- name: WORDPRESS_CONFIG_EXTRA
+  value: |
+    define('WP_HOME','https://lennardjohn.org');
+    define('WP_SITEURL','https://lennardjohn.org');
+    if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+        $_SERVER['HTTPS'] = 'on';
+    }
+```
+
+### The two traps this design avoids
+
+**Trap 1 — the WordPress domain move.** WordPress persists its own canonical URL in the `wp_options` table (`siteurl` and `home`). Point a new hostname at WordPress without addressing this and every request 302-redirects back to the old hostname. The conventional fix is `UPDATE wp_options SET option_value=...` plus a search-replace across post content — destructive, and a typo in `siteurl` locks you out of `/wp-admin`, which is where you would normally go to fix it.
+
+Defining `WP_HOME` and `WP_SITEURL` as PHP constants in `wp-config.php` overrides the database values without writing to the database. The official `wordpress` image appends `WORDPRESS_CONFIG_EXTRA` verbatim into `wp-config.php` at container start. Consequences: the setting is declarative, version-controlled, owned by Argo CD, and reversible with `git revert` — and because the database was never touched, rollback is guaranteed lossless.
+
+**Trap 2 — the TLS-termination redirect loop.** Cloudflare terminates TLS at its edge; `cloudflared` forwards plain HTTP to `ingress-nginx`. PHP therefore sees `$_SERVER['HTTPS']` unset. With `WP_SITEURL` set to `https://`, WordPress concludes the request is on the wrong scheme and redirects to the HTTPS URL — which arrives, again, as plain HTTP. `ERR_TOO_MANY_REDIRECTS`.
+
+`ingress-nginx` sets `X-Forwarded-Proto: https`. Trusting that header and setting `$_SERVER['HTTPS'] = 'on'` tells WordPress the client-side connection is already secure, so it stops redirecting. This is the single most common failure mode when putting WordPress behind any reverse proxy or CDN.
+
+### Why a separate Ingress object rather than adding a host to the existing one
+
+`ingress.yaml` (the `blog.lennardjohn.org` route) is left byte-for-byte unmodified. A rollback deletes a file rather than editing a working route, so the blog cannot be collaterally damaged by a bad revert. Two Ingress objects in one namespace targeting the same Service is entirely valid.
+
+The inverse rule does apply, and is documented in the kustomization comments: **exactly one** Ingress may claim host `lennardjohn.org`. Two Ingresses claiming the same host is undefined behaviour in ingress-nginx — it typically honours the oldest by creation timestamp, which is neither predictable nor stable across a resync. So `landing/ingress.yaml` had to be withdrawn in the same commit that added `root-ingress.yaml`.
+
+### Why no CI pipeline ran
+
+The Cloudflare tunnel config (`terraform/proxmox/cloudflare.tf:61`) already maps `lennardjohn.org` → `ingress-nginx-controller.ingress-nginx.svc.cluster.local`. The tunnel only cares which hostnames reach the cluster, not which Service answers inside it — that is ingress-nginx's job. So no Terraform, no DNS, and no Ansible change was required.
+
+`.github/workflows/deploy.yml` triggers only on:
+```yaml
+paths:
+  - 'terraform/**'
+  - 'ansible/**'
+```
+
+A `kubernetes/**` change therefore bypasses CI entirely and deploys through Argo CD alone. This mattered practically: the pipeline had been failing repeatedly and the cluster had needed manual rebuilding, so a change that avoids CI was the low-risk path.
+
+### Rollback
+
+```bash
+git revert <commit-sha> && git push
+```
+Argo CD reconciles in ~3 minutes. Nothing to undo in the database. The landing page's Deployment, Service and ConfigMap were never removed — only its Ingress — so the pod is still running and healthy throughout, just unrouted. Restoring the Ingress restores the page instantly, with no image pull or scheduling delay.
+
+### Known limitation carried forward
+
+Argo CD manages the pods; it does not manage anything authored *inside* WordPress. Plugins, themes, pages, and Tutor LMS courses live in the `wordpress-pvc` volume and the MariaDB database — neither is in Git. This is structurally the same blind spot as Incident #23, where the Helm release vanished and Argo CD rebuilt the namespace and ingress but could not rebuild the Helm-managed resources. Before real course content exists, this needs a `mysqldump` + PVC backup routine. GitOps guarantees the platform can be rebuilt; it guarantees nothing about the content on it.
+
+### Interview talking points
+
+1. **Configuration override beats data migration.** The textbook WordPress domain move edits the database. Overriding via `wp-config.php` constants achieves the same result while leaving the data untouched — which converts a risky, manual, forward-only migration into a declarative change that `git revert` undoes completely. When a system stores config in a database, look for a config-layer override before reaching for SQL.
+2. **Know where TLS actually terminates.** The redirect loop is not a WordPress bug; it is the application correctly reasoning from incorrect information. Anything behind a TLS-terminating proxy must be told the original scheme via `X-Forwarded-Proto`, and must be configured to trust it. This applies to WordPress, Django, Rails, Grafana and Argo CD alike.
+3. **Design changes so that rollback is structurally safe.** Adding a new file and commenting out one line means the revert path touches no working configuration. That is a deliberate choice: reversibility is a property you design in, not something you hope for during an incident.
+4. **Understand your trigger paths.** Knowing the CI workflow filtered on `terraform/**` and `ansible/**` meant knowing in advance that this change could not trip the failing pipeline. Path filters are a blast-radius control, not just a speed optimisation.
+5. **GitOps reconciles declarations, not content.** A recurring lesson from this cluster: Argo CD restores what is described in Git. Helm release state (Incident #23) and WordPress content (this change) both live outside Git and both need their own recovery path.
+
+---
+
 ## Next Steps: Secrets Management Options
 
 ### Context

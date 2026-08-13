@@ -187,7 +187,7 @@ Browser → Cloudflare DNS → Cloudflare Edge
     → Cloudflare Tunnel → cloudflared pod (cloudflared namespace)
     → ingress-nginx-controller.ingress-nginx.svc.cluster.local
     → NGINX Ingress rules:
-        lennardjohn.org         → landing:80      (landing namespace)
+        lennardjohn.org         → wordpress:80    (wordpress namespace)
         blog.lennardjohn.org    → wordpress:80    (wordpress namespace)
         grafana.lennardjohn.org → grafana:80      (monitoring namespace)
         argocd.lennardjohn.org  → argocd-server:80 (argocd namespace)
@@ -229,7 +229,54 @@ Browser → Cloudflare DNS → Cloudflare Edge
 - Liveness: TCP port 80 (60s delay)
 - Readiness: TCP port 80 (30s delay) — TCP not HTTP; WordPress returns 500 on fresh install before setup wizard, so httpGet would permanently block the pod from becoming Ready
 - DB host: `mariadb:3306`
-- Ingress: `blog.lennardjohn.org`
+- Ingress: `blog.lennardjohn.org` (`ingress.yaml`) **and** `lennardjohn.org` (`root-ingress.yaml`) — both point at the same `wordpress` Service
+- `WORDPRESS_CONFIG_EXTRA`: sets `WP_HOME`/`WP_SITEURL` to `https://lennardjohn.org` and trusts `X-Forwarded-Proto`. See "Root domain → WordPress" below
+
+### Root domain → WordPress (2026-08-13)
+
+`lennardjohn.org` now serves WordPress instead of the static landing page. This is the foundation for the planned platform (Tutor LMS, resume, projects, tech camp signup).
+
+**What changed — three files, nothing else:**
+
+| File | Change |
+|---|---|
+| `kubernetes/wordpress/root-ingress.yaml` | **New.** Ingress `wordpress-root` for host `lennardjohn.org` → `wordpress:80` |
+| `kubernetes/wordpress/wordpress.yaml` | Added `WORDPRESS_CONFIG_EXTRA` env var |
+| `kubernetes/landing/kustomization.yaml` | Commented out `ingress.yaml` |
+
+**Why a separate Ingress object rather than adding a host to `ingress.yaml`:** the original blog route stays byte-for-byte unmodified, so rollback cannot corrupt it. Two Ingresses in the same namespace pointing at the same Service is perfectly valid.
+
+**Why `WORDPRESS_CONFIG_EXTRA` instead of editing the database:** WordPress stores `siteurl`/`home` in the `wp_options` table. The usual domain move is a SQL `UPDATE` plus a search-replace, which is destructive and easy to get wrong (a bad value locks you out of `/wp-admin`). `WP_HOME`/`WP_SITEURL` defined in `wp-config.php` **override** the database values without touching them. The config is declarative, lives in Git, is owned by Argo CD, and reverts with `git revert`. The database is never modified, so rollback is guaranteed clean.
+
+**Why the `X-Forwarded-Proto` block is mandatory:** Cloudflare terminates TLS at the edge and the tunnel speaks plain HTTP to `ingress-nginx`. PHP therefore sees `HTTPS` unset while `WP_SITEURL` says `https://`. WordPress compares the two, decides the request is on the wrong scheme, and issues a redirect — which arrives back over HTTP and redirects again. That is an infinite redirect loop (`ERR_TOO_MANY_REDIRECTS`). Setting `$_SERVER['HTTPS'] = 'on'` when the forwarded header says `https` tells WordPress the client connection is already secure.
+
+**No CI involvement:** the Cloudflare tunnel already routes `lennardjohn.org` → `ingress-nginx` (`terraform/proxmox/cloudflare.tf:61`), so no Terraform or DNS change was needed. The GitHub Actions workflow only triggers on `terraform/**` and `ansible/**`, so this deploys via Argo CD alone.
+
+**Deliberately NOT changed:** WordPress memory limits stayed at 512Mi. Tutor LMS will need more, but that is a separate change with its own rollback.
+
+**The landing page is not deleted.** Its Deployment, Service and ConfigMap are still applied and running — only its Ingress was removed, so nothing routes to it.
+
+#### Rollback
+
+```bash
+# Full revert (preferred — restores static landing page):
+git revert <commit-sha> && git push
+# Argo CD reconciles within ~3 min. No DB changes to undo.
+```
+
+Manual equivalent, if reverting by hand:
+1. Uncomment `- ingress.yaml` in `kubernetes/landing/kustomization.yaml`
+2. Remove `- root-ingress.yaml` from `kubernetes/wordpress/kustomization.yaml` and delete the file
+3. Remove the `WORDPRESS_CONFIG_EXTRA` env block from `kubernetes/wordpress/wordpress.yaml`
+
+Steps 1 and 2 must land together — two Ingress objects claiming host `lennardjohn.org` is undefined behaviour in ingress-nginx. Once `WORDPRESS_CONFIG_EXTRA` is gone, WordPress falls back to the `siteurl` in the database, which still reads `blog.lennardjohn.org`.
+
+**Emergency rollback without Git** (if Argo CD is unavailable):
+```bash
+kubectl delete ingress wordpress-root -n wordpress
+kubectl apply -f kubernetes/landing/ingress.yaml
+```
+Note `selfHeal: true` will revert manual changes once Argo CD is healthy again — use Git for anything permanent.
 
 **Secret: wordpress-secrets** (created by Ansible, not committed)
 - `mariadb-root-password` ← `MARIADB_ROOT_PASSWORD` (.env)
@@ -304,6 +351,7 @@ sed -i 's/letsencrypt-staging/letsencrypt-prod/g' \
 ### Certificates
 | Domain | Secret | Namespace |
 |---|---|---|
+| `lennardjohn.org` | `wordpress-root-tls` | `wordpress` |
 | `blog.lennardjohn.org` | `wordpress-tls` | `wordpress` |
 | `grafana.lennardjohn.org` | `grafana-tls` | `monitoring` |
 | `argocd.lennardjohn.org` | `argocd-tls` | `argocd` |

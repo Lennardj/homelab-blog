@@ -4,4 +4,14 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - deployment.yaml
-  - ingress.yaml
+  # - ingress.yaml
+  #
+  # Root domain moved to WordPress (kubernetes/wordpress/root-ingress.yaml).
+  # Two Ingress objects claiming host lennardjohn.org is undefined behaviour in
+  # ingress-nginx, so exactly one of these two lines may be active at a time.
+  #
+  # ingress.yaml is intentionally left in the repo, and the landing Deployment +
+  # ConfigMap are still deployed and healthy (just unrouted). To roll back:
+  # uncomment this line, remove root-ingress.yaml from the wordpress
+  # kustomization, and the static landing page returns. Argo CD prune:true means
+  # the landing Ingress object is deleted from the cluster while commented out.

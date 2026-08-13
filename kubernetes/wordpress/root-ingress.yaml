@@ -1,0 +1,32 @@
+# Root domain (lennardjohn.org) -> WordPress.
+#
+# Kept as a SEPARATE Ingress object from ingress.yaml (blog.lennardjohn.org) so
+# that the original blog route stays byte-for-byte untouched. Reversing the root
+# domain switch = delete this file + re-add kubernetes/landing/ingress.yaml to
+# the landing kustomization. See KNOWLEDGE_BASE.md "Rollback".
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wordpress-root
+  namespace: wordpress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - lennardjohn.org
+      secretName: wordpress-root-tls
+  rules:
+    - host: lennardjohn.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wordpress
+                port:
+                  number: 80

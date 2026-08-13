@@ -38,6 +38,23 @@ spec:
                 secretKeyRef:
                   name: wordpress-secrets
                   key: mariadb-password
+            # Root-domain switch. WP_HOME/WP_SITEURL override the siteurl/home
+            # values stored in the database, so the domain move needs no SQL
+            # edit and reverses with `git revert`. Delete this env var to send
+            # WordPress back to whatever the database says (blog.lennardjohn.org).
+            #
+            # The X-Forwarded-Proto check is required, not optional: Cloudflare
+            # terminates TLS and the tunnel talks plain HTTP to ingress-nginx, so
+            # PHP sees an HTTP request while WP_SITEURL says https. Without this,
+            # WordPress redirects http->https on every request and the browser
+            # ends in a redirect loop.
+            - name: WORDPRESS_CONFIG_EXTRA
+              value: |
+                define('WP_HOME','https://lennardjohn.org');
+                define('WP_SITEURL','https://lennardjohn.org');
+                if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+                    $_SERVER['HTTPS'] = 'on';
+                }
           resources:
             requests:
               cpu: 100m
