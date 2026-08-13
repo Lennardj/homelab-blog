@@ -188,7 +188,7 @@ Browser → Cloudflare DNS → Cloudflare Edge
     → ingress-nginx-controller.ingress-nginx.svc.cluster.local
     → NGINX Ingress rules:
         lennardjohn.org         → wordpress:80    (wordpress namespace)
-        blog.lennardjohn.org    → wordpress:80    (wordpress namespace)
+        blog.lennardjohn.org    → 301 → https://lennardjohn.org (retired)
         grafana.lennardjohn.org → grafana:80      (monitoring namespace)
         argocd.lennardjohn.org  → argocd-server:80 (argocd namespace)
 ```
@@ -229,7 +229,7 @@ Browser → Cloudflare DNS → Cloudflare Edge
 - Liveness: TCP port 80 (60s delay)
 - Readiness: TCP port 80 (30s delay) — TCP not HTTP; WordPress returns 500 on fresh install before setup wizard, so httpGet would permanently block the pod from becoming Ready
 - DB host: `mariadb:3306`
-- Ingress: `blog.lennardjohn.org` (`ingress.yaml`) **and** `lennardjohn.org` (`root-ingress.yaml`) — both point at the same `wordpress` Service
+- Ingress: `lennardjohn.org` (`root-ingress.yaml`) serves the site. `blog.lennardjohn.org` (`ingress.yaml`) **301-redirects to the root domain** via `nginx.ingress.kubernetes.io/permanent-redirect` — it no longer serves content
 - `WORDPRESS_CONFIG_EXTRA`: sets `WP_HOME`/`WP_SITEURL` to `https://lennardjohn.org` and trusts `X-Forwarded-Proto`. See "Root domain → WordPress" below
 
 ### Root domain → WordPress (2026-08-13)

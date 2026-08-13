@@ -2233,6 +2233,29 @@ git revert <commit-sha> && git push
 ```
 Argo CD reconciles in ~3 minutes. Nothing to undo in the database. The landing page's Deployment, Service and ConfigMap were never removed — only its Ingress — so the pod is still running and healthy throughout, just unrouted. Restoring the Ingress restores the page instantly, with no image pull or scheduling delay.
 
+### Follow-up — retiring `blog.lennardjohn.org`
+
+Leaving both hosts serving WordPress meant the identical site answered on two URLs. Verified with `curl`:
+
+```
+curl -sS -o /dev/null -D - --max-redirs 0 https://blog.lennardjohn.org/
+HTTP/1.1 200 OK
+```
+
+A `200` rather than a `301` confirms genuine duplicate content — WordPress was serving the blog host directly, not canonicalising it. Search engines treat that as two competing copies and split ranking signals between them.
+
+Fix — an ingress-nginx annotation on the existing blog Ingress:
+
+```yaml
+nginx.ingress.kubernetes.io/permanent-redirect: https://lennardjohn.org
+```
+
+**Why keep the Ingress instead of deleting it:** the TLS certificate for `blog.lennardjohn.org` is attached to that Ingress. Delete the Ingress and the certificate goes with it, so a browser visiting `https://blog.lennardjohn.org` fails the TLS handshake *before* any redirect can be sent — the user sees a security warning, not a redirect. **The redirect must be served over valid TLS to be useful at all.** This is a general rule when retiring an HTTPS hostname: keep the certificate alive for as long as you want the redirect to work.
+
+The DNS record and Cloudflare tunnel rule were deliberately left in place — removing them means editing `terraform/proxmox/cloudflare.tf`, which triggers the GitHub Actions pipeline. A `kubernetes/**`-only change stays on the Argo CD path.
+
+Known limitation: `permanent-redirect` sends every path to the homepage; it does not map `/blog/some-post` to its equivalent. Path-preserving redirects need `configuration-snippet` with `return 301 https://lennardjohn.org$request_uri;`, but snippet annotations are disabled by default in ingress-nginx ≥1.9 (`allow-snippet-annotations: false`) because they allow arbitrary nginx config injection from any namespace with Ingress permissions. Not worth re-enabling cluster-wide for this.
+
 ### Known limitation carried forward
 
 Argo CD manages the pods; it does not manage anything authored *inside* WordPress. Plugins, themes, pages, and Tutor LMS courses live in the `wordpress-pvc` volume and the MariaDB database — neither is in Git. This is structurally the same blind spot as Incident #23, where the Helm release vanished and Argo CD rebuilt the namespace and ingress but could not rebuild the Helm-managed resources. Before real course content exists, this needs a `mysqldump` + PVC backup routine. GitOps guarantees the platform can be rebuilt; it guarantees nothing about the content on it.

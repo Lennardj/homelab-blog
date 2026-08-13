@@ -1,3 +1,20 @@
+# blog.lennardjohn.org — retired, now 301-redirects to the root domain.
+#
+# Both hosts previously served WordPress directly (verified: blog returned 200,
+# not a redirect), which is duplicate content — bad for SEO and confusing.
+#
+# The Ingress is kept rather than deleted so that:
+#   1. the TLS cert for blog.lennardjohn.org stays valid — without it the browser
+#      fails the handshake BEFORE it ever sees the redirect, which looks broken;
+#   2. existing links and bookmarks still resolve.
+#
+# To restore blog.lennardjohn.org as a real site: delete the permanent-redirect
+# annotation. To remove the subdomain entirely: also drop the DNS record and the
+# Cloudflare tunnel ingress rule in terraform/proxmox/cloudflare.tf — note that
+# editing terraform/** DOES trigger the GitHub Actions pipeline.
+#
+# Note: permanent-redirect does not preserve the path — every blog URL lands on
+# the root homepage, not its equivalent page.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -6,6 +23,7 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "64m"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/permanent-redirect: https://lennardjohn.org
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
