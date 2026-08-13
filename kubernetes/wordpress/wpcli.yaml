@@ -82,6 +82,17 @@ spec:
           volumeMounts:
             - name: wordpress-data
               mountPath: /var/www/html
+            # The child theme ConfigMap must be mounted HERE TOO, not just on
+            # the WordPress pod. WP-CLI scans the themes directory on its own
+            # filesystem; without this mount `wp theme list` cannot see the
+            # theme and `wp theme activate lennardjohn` fails with "not found",
+            # even though the live site can see it perfectly well.
+            #
+            # General rule: any file the web pod reads from a mount, the CLI pod
+            # needs the same mount to administer.
+            - name: child-theme
+              mountPath: /var/www/html/wp-content/themes/lennardjohn
+              readOnly: true
           resources:
             requests:
               cpu: 10m
@@ -93,3 +104,6 @@ spec:
         - name: wordpress-data
           persistentVolumeClaim:
             claimName: wordpress-pvc
+        - name: child-theme
+          configMap:
+            name: wordpress-child-theme
