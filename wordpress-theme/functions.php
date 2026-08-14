@@ -128,11 +128,29 @@ add_action(
             wp_get_theme( get_template() )->get( 'Version' )
         );
 
+        /*
+         * Version from the file's mtime, NOT the theme header.
+         *
+         * The stylesheet is served through Cloudflare with max-age=14400, so a
+         * static ?ver=1.0.0 means the cache key never changes and visitors keep
+         * the old CSS for up to four hours after a deploy - while the file on
+         * disk is already correct, which makes a successful deploy look like a
+         * silent failure.
+         *
+         * The theme is re-cloned from Git into a fresh emptyDir on every pod
+         * start, so mtime changes on every deploy and the cache busts by itself.
+         * No version bump to remember.
+         */
+        $style_path = get_stylesheet_directory() . '/style.css';
+        $style_ver  = file_exists( $style_path )
+            ? (string) filemtime( $style_path )
+            : (string) wp_get_theme()->get( 'Version' );
+
         wp_enqueue_style(
             'lennardjohn-child',
             get_stylesheet_directory_uri() . '/style.css',
             array( 'twentytwentyfive-parent' ),
-            wp_get_theme()->get( 'Version' )
+            $style_ver
         );
     }
 );
