@@ -210,6 +210,44 @@ a:not(.wp-block-button__link):hover {
 }
 
 /* ---------------------------------------------------------------------
+   Status badges.
+   Used to mark work that is genuinely unfinished, so a thin page reads as
+   deliberately in progress rather than as a broken or abandoned one.
+   Amber deliberately, not the accent green: green reads as "done" everywhere
+   else on this site, so reusing it here would undercut the whole point.
+
+   Usage in content files:
+     <span class="lj-badge lj-badge--progress">In Progress</span>
+   --------------------------------------------------------------------- */
+.lj-badge {
+  display: inline-block;
+  font-family: var(--wp--preset--font-family--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--wp--preset--color--accent-4);
+  color: var(--wp--preset--color--accent-2);
+  background: var(--wp--preset--color--accent-3);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.lj-badge--progress {
+  border-color: #ffbd2e;
+  color: #ffbd2e;
+  background: rgba(255, 189, 46, 0.08);
+}
+
+/* A badge in its own paragraph block sits directly under the page title, so
+   it needs the surrounding margin collapsed. */
+p.lj-badge-row {
+  margin-top: -0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ---------------------------------------------------------------------
    Footer.
    --------------------------------------------------------------------- */
 .lj-footer .wp-block-site-title {
