@@ -210,6 +210,92 @@ a:not(.wp-block-button__link):hover {
 }
 
 /* ---------------------------------------------------------------------
+   Responsive navigation.
+
+   Core only shows the hamburger below 600px:
+     @media (min-width:600px){.wp-block-navigation__responsive-container-open
+       :not(.always-shown){display:none}}
+
+   That leaves tablets (iPad is 768px portrait, 1024px landscape) rendering the
+   full menu - six top-level items plus submenus - which overflows the header and
+   looks broken. The block's overlayMenu attribute has no breakpoint option, so
+   the media query is extended here to 900px instead.
+
+   !important is needed because core's rules are emitted as inline <style> in
+   the document head, which can outrank an external stylesheet regardless of
+   specificity.
+   --------------------------------------------------------------------- */
+@media (min-width: 600px) and (max-width: 900px) {
+  /* Show the hamburger... */
+  .wp-block-navigation__responsive-container-open:not(.always-shown) {
+    display: flex !important;
+  }
+
+  /* ...and hide the inline menu it replaces. */
+  .wp-block-navigation__responsive-container:not(.hidden-by-default):not(.is-menu-open) {
+    display: none !important;
+  }
+}
+
+/* The open overlay. Core gives it no colours of its own, so without this it
+   inherits whatever is behind it - on a dark site that reads as broken. */
+.wp-block-navigation__responsive-container.is-menu-open {
+  background-color: var(--wp--preset--color--base) !important;
+  padding: 4rem 1.5rem 2rem;
+}
+
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation-item__content {
+  color: var(--wp--preset--color--contrast);
+  font-size: 1.05rem;
+  padding: 0.35rem 0;
+}
+
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation-item__content:hover {
+  color: var(--wp--preset--color--accent-1);
+}
+
+/* Submenu items sit under their parent in the overlay - indent and dim them so
+   the hierarchy is still readable once everything is expanded. */
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__submenu-container .wp-block-navigation-item__content {
+  color: var(--wp--preset--color--accent-2);
+  font-size: 0.92rem;
+  padding-left: 1rem;
+}
+
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__responsive-container-close {
+  color: var(--wp--preset--color--accent-1);
+}
+
+.wp-block-navigation__responsive-container-open {
+  color: var(--wp--preset--color--accent-1);
+}
+
+/* ---------------------------------------------------------------------
+   Narrow-screen safety.
+   --------------------------------------------------------------------- */
+
+/* The blog grid uses minimumColumnWidth: 20rem, which resolves to
+   minmax(20rem, 1fr). On a 320px device the content box is narrower than 20rem,
+   so the column overflows and the whole page scrolls sideways. Force a single
+   column before that happens. */
+@media (max-width: 26rem) {
+  .lj-post-cards.is-layout-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Long unbroken strings - URLs, image names, command flags - are the other
+   common cause of horizontal overflow on phones. */
+body {
+  overflow-wrap: break-word;
+}
+
+.wp-block-post-title a,
+.lj-post-cards .wp-block-post-excerpt__excerpt {
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------------
    Status badges.
    Used to mark work that is genuinely unfinished, so a thin page reads as
    deliberately in progress rather than as a broken or abandoned one.
@@ -458,5 +544,31 @@ p.lj-badge-row {
 @media (max-width: 781px) {
   .wp-block-columns .wp-block-column { padding: 1.25rem; }
   .terminal-window { padding: 3.25rem 1.25rem 2rem; }
+}
+
+/* Phones: the hero heading at its desktop size is wide enough to force
+   horizontal scroll on a 320px screen, and the terminal title bar caption
+   collides with the window dots. */
+@media (max-width: 480px) {
+  .terminal-window {
+    padding: 3rem 1rem 1.75rem;
+  }
+
+  .terminal-window h1.wp-block-heading {
+    font-size: 1.9rem;
+  }
+
+  /* The dots occupy the left of the title bar; centring the caption across the
+     full width overlaps them at this size, so shift it clear. */
+  .terminal-window::after {
+    text-align: right;
+    padding-right: 1rem;
+  }
+
+  h2.wp-block-heading { font-size: 1.3rem; }
+  h3.wp-block-heading { font-size: 1rem; }
+
+  .wp-block-preformatted,
+  .wp-block-code { font-size: 0.75rem; }
 }
 
