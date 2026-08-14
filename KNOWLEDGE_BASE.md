@@ -424,6 +424,43 @@ WordPress's default `Hello world!` post and `Sample Page` were deleted.
 
 **Content still needed from the owner** (deliberately left as short honest stubs rather than invented): Azure School Infrastructure, Education & Digital Technology, and the biographical half of Teaching.
 
+### CSS caching — why a correct deploy can look like a failed one
+
+The stylesheet is served through Cloudflare with `cache-control: max-age=14400`. WordPress appends `?ver=` to the enqueued URL, and that query string is part of the cache key.
+
+With a static `?ver=1.0.0` from the theme header, **the cache key never changed after a theme edit**. The file on disk in the pod was correct and the CDN kept serving the previous copy for up to four hours — an outcome indistinguishable from the deploy having silently failed.
+
+Observed during the responsive fix:
+```
+pod:    17188 bytes, new rules present
+served: 13207 bytes, cf-cache-status: HIT, age: 372
+```
+
+**Fix:** `functions.php` derives the enqueue version from `filemtime()` of `style.css` rather than the theme header. The theme is re-cloned into a fresh `emptyDir` on every pod start, so the mtime changes on every deploy and the cache busts by itself — no version bump to remember.
+
+**Diagnosing this class of problem:** compare the file inside the pod against what the CDN returns, not the page as rendered in a browser.
+```bash
+kubectl exec -n wordpress deploy/wordpress -- wc -c /var/www/html/wp-content/themes/lennardjohn/style.css
+curl -s -o /dev/null -w "%{size_download}\n" https://lennardjohn.org/wp-content/themes/lennardjohn/style.css
+curl -sI https://lennardjohn.org/wp-content/themes/lennardjohn/style.css | grep cf-cache-status
+```
+Page HTML is `cf-cache-status: DYNAMIC` (uncached); static assets are not.
+
+### Responsive navigation
+
+Core shows the navigation hamburger **only below 600px**:
+```css
+@media (min-width:600px){.wp-block-navigation__responsive-container-open:not(.always-shown){display:none}}
+```
+
+That leaves tablets — iPad is 768px portrait, 1024px landscape — rendering the full menu, which with six top-level items plus submenus overflows the header. The block's `overlayMenu` attribute offers no breakpoint option, so `style.css` extends the media query to **900px**, showing the hamburger and hiding the inline menu between 600–900px.
+
+`!important` is required there: core's block styles are emitted as inline `<style>` in the document head, which can outrank an external stylesheet regardless of specificity.
+
+The open overlay is also styled explicitly. Core gives it no colours, so on a dark site it otherwise inherits whatever sits behind it and reads as broken.
+
+Other narrow-screen guards: the blog grid's `minimumColumnWidth: 20rem` overflows below ~320px, so it is forced to a single column under 26rem; `overflow-wrap` prevents long URLs and command flags from forcing horizontal scroll; and hero/heading/code sizes step down under 480px.
+
 ### Status badge
 
 Unfinished work is marked with a reusable badge rather than a sentence buried in prose, so a thin page reads as deliberately in progress instead of broken:
