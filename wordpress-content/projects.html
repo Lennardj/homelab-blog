@@ -1,5 +1,5 @@
 <!-- wp:paragraph {"fontSize":"large"} -->
-<p class="has-large-font-size">The platform serving this page is the project. Everything below is running right now, on my own hardware.</p>
+<p class="has-large-font-size">Things I have built, and the capabilities behind them.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:separator -->
@@ -7,96 +7,76 @@
 <!-- /wp:separator -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Self-hosted Kubernetes platform</h2>
+<h2 class="wp-block-heading">Projects</h2>
 <!-- /wp:heading -->
 
-<!-- wp:paragraph -->
-<p>A complete infrastructure pipeline that takes a bare Proxmox host to a running, monitored, TLS-terminated Kubernetes cluster with no manual steps in between.</p>
-<!-- /wp:paragraph -->
-
-<!-- wp:paragraph -->
-<p><a href="https://github.com/Lennardj/homelab-blog" target="_blank" rel="noreferrer noopener"><strong>Source on GitHub &rarr;</strong></a></p>
-<!-- /wp:paragraph -->
-
+<!-- wp:columns -->
+<div class="wp-block-columns">
+<!-- wp:column -->
+<div class="wp-block-column">
 <!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">The pipeline</h3>
+<h3 class="wp-block-heading"><a href="/projects/homelab-platform/">Homelab Platform</a></h3>
 <!-- /wp:heading -->
+<!-- wp:paragraph -->
+<p>A self-hosted Kubernetes platform built from bare metal — the one serving this page. Terraform, Ansible, Argo CD, and a zero-trust tunnel.</p>
+<!-- /wp:paragraph -->
+</div>
+<!-- /wp:column -->
 
-<!-- wp:preformatted -->
-<pre class="wp-block-preformatted">Terraform  &rarr;  provisions VMs on Proxmox, DNS + tunnel on Cloudflare
-Ansible    &rarr;  bootstraps Kubernetes, installs platform services
-Argo CD    &rarr;  reconciles workloads from Git, continuously
-Cloudflare &rarr;  publishes the result with no inbound ports open</pre>
-<!-- /wp:preformatted -->
-
+<!-- wp:column -->
+<div class="wp-block-column">
 <!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">What runs on it</h3>
+<h3 class="wp-block-heading"><a href="/projects/azure-school-infrastructure/">Azure School Infrastructure</a></h3>
 <!-- /wp:heading -->
-
-<!-- wp:list -->
-<ul class="wp-block-list">
-<!-- wp:list-item --><li><strong>This website</strong> — WordPress with MariaDB, backed by persistent volumes and nightly encrypted backups.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>Grafana &amp; Prometheus</strong> — cluster and node metrics, with alerting to email.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>Argo CD</strong> — the GitOps control plane, itself deployed by the pipeline that it then takes over from.</li><!-- /wp:list-item -->
-</ul>
-<!-- /wp:list -->
+<!-- wp:paragraph -->
+<p>Cloud infrastructure work in an education setting.</p>
+<!-- /wp:paragraph -->
+</div>
+<!-- /wp:column -->
+</div>
+<!-- /wp:columns -->
 
 <!-- wp:separator -->
 <hr class="wp-block-separator has-alpha-channel-opacity"/>
 <!-- /wp:separator -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Engineering decisions worth explaining</h2>
+<h2 class="wp-block-heading">Capabilities</h2>
 <!-- /wp:heading -->
 
+<!-- wp:columns -->
+<div class="wp-block-columns">
+<!-- wp:column -->
+<div class="wp-block-column">
 <!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">DNS-01 certificates, not HTTP-01</h3>
+<h3 class="wp-block-heading"><a href="/projects/kubernetes/">Kubernetes</a></h3>
 <!-- /wp:heading -->
-
 <!-- wp:paragraph -->
-<p>Because traffic arrives through a Cloudflare Tunnel, there is no inbound HTTP path for Let's Encrypt to validate against. cert-manager proves domain ownership by writing a TXT record through the Cloudflare API instead. The constraint dictated the design.</p>
+<p>Cluster building, networking, storage, ingress and workload operations.</p>
 <!-- /wp:paragraph -->
+</div>
+<!-- /wp:column -->
 
+<!-- wp:column -->
+<div class="wp-block-column">
 <!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">A self-hosted CI runner</h3>
+<h3 class="wp-block-heading"><a href="/projects/infrastructure-automation/">Infrastructure Automation</a></h3>
 <!-- /wp:heading -->
-
 <!-- wp:paragraph -->
-<p>GitHub-hosted runners are cloud VMs with no route to a private LAN. They cannot reach the Proxmox API or the cluster nodes. A self-hosted runner solves that and keeps every credential off GitHub entirely.</p>
+<p>Infrastructure as Code, configuration management, GitOps and CI/CD.</p>
 <!-- /wp:paragraph -->
+</div>
+<!-- /wp:column -->
 
+<!-- wp:column -->
+<div class="wp-block-column">
 <!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">Least privilege at the network layer</h3>
+<h3 class="wp-block-heading"><a href="/projects/education-digital-technology/">Education &amp; Digital Technology</a></h3>
 <!-- /wp:heading -->
-
 <!-- wp:paragraph -->
-<p>A Kubernetes NetworkPolicy restricts the database to accepting connections only from the specific workloads that need it — the web application, the backup job, and the administrative CLI. Every other pod in the cluster is denied, including anything an attacker might land in.</p>
+<p>Teaching technology, and building the systems that support learning.</p>
 <!-- /wp:paragraph -->
-
-<!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">Backups that have actually been restored</h3>
-<!-- /wp:heading -->
-
-<!-- wp:paragraph -->
-<p>Nightly encrypted snapshots with restic to off-cluster storage, with client-side encryption so the backup host never holds readable data. The restore has been performed and verified by comparing row counts against the live database — not merely documented as a procedure.</p>
-<!-- /wp:paragraph -->
-
-<!-- wp:separator -->
-<hr class="wp-block-separator has-alpha-channel-opacity"/>
-<!-- /wp:separator -->
-
-<!-- wp:heading -->
-<h2 class="wp-block-heading">Failures, written up properly</h2>
-<!-- /wp:heading -->
-
-<!-- wp:paragraph -->
-<p>Every significant failure on this platform is documented with the exact symptom, the diagnostic commands, the hypotheses that turned out to be wrong, and the root cause. A sample:</p>
-<!-- /wp:paragraph -->
-
-<!-- wp:list -->
-<ul class="wp-block-list">
-<!-- wp:list-item --><li><strong>An infinite redirect loop on the admin panel.</strong> The reverse proxy was discarding the header the application relied on to detect HTTPS — by design, since forwarded headers are client-controlled and must not be trusted by default.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>A database that refused to start during a routine update.</strong> ReadWriteOnce restricts a volume to one <em>node</em>, not one pod, so a rolling update started a second database process against live data files. The storage engine's file lock was the only thing preventing corruption.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>A monitoring stack that vanished.</strong> Argo CD rebuilt the namespace and ingress but could not rebuild the Helm release, because Helm-managed resources are rendered at install time and never stored in Git. GitOps protects only what is actually in Git.</li><!-- /wp:list-item -->
-</ul>
-<!-- /wp:list -->
+</div>
+<!-- /wp:column -->
+</div>
+<!-- /wp:columns -->

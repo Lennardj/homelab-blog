@@ -1,0 +1,79 @@
+<!-- wp:paragraph {"fontSize":"large"} -->
+<p class="has-large-font-size">If it cannot be rebuilt from code, it is not finished.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Every piece of infrastructure I run is described in a repository. Not documented after the fact — <em>defined</em> there, as the source the running system is reconciled against.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Infrastructure as Code — Terraform</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>VM provisioning on Proxmox, including cloud-init, sizing and static addressing.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Cloudflare DNS records and tunnel ingress rules managed through the provider and API.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>State persisted outside the workspace so pipeline runs are repeatable rather than destructive.</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>Providers do not always cover the API you need. The Proxmox provider cannot delete a running VM, so a destroy would fail the whole pipeline — solved by querying the VM state through the Proxmox API and stopping it first. <a href="/writing/blog/">I wrote that one up.</a></p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Configuration as Code — Ansible</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Kubernetes bootstrap with kubeadm, from bare Ubuntu to a joined cluster.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Platform services installed in dependency order — CNI, load balancer, ingress, storage, certificates, monitoring.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Secrets injected at deploy time from a single source, never committed.</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>The recurring lesson here was about timing. Playbooks that assumed a resource was ready failed intermittently and unpredictably. Playbooks that check actual state and retry until it converges do not.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:quote -->
+<blockquote class="wp-block-quote"><!-- wp:paragraph --><p>Stop designing systems that depend on timing. Start designing systems that converge.</p><!-- /wp:paragraph --></blockquote>
+<!-- /wp:quote -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">GitOps — Argo CD</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Argo CD watches the repository and reconciles the cluster to match it, with automated sync, pruning and self-healing. Changing what runs in production means committing a file, not running a command.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>The limit of that model is worth stating plainly, because it is where people get caught: <strong>GitOps reconciles declarations, not data.</strong> When a Helm release was removed from a namespace here, Argo CD faithfully rebuilt the namespace and the ingress — both declared in Git — and could not rebuild the release itself, because Helm-managed resources are rendered at install time and never stored in Git.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>The same boundary applies to application content. Git guarantees the platform can be rebuilt. It guarantees nothing about what is on it — which is why backups came before features.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">CI/CD — GitHub Actions</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>A self-hosted runner, because GitHub-hosted runners are cloud VMs with no route to a private LAN — they cannot reach the Proxmox API or the cluster nodes. Self-hosting solves that and keeps every credential off GitHub entirely.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Workflows are path-filtered, so infrastructure changes and application changes take different routes. That is a blast-radius control as much as a speed optimisation: a change to Kubernetes manifests deploys through Argo CD and never touches the Terraform pipeline at all.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Containerised tooling</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Terraform and Ansible both run in containers, so the build executes identically on a laptop and on the CI runner. No version drift, no "works on my machine", no host prerequisites beyond Docker.</p>
+<!-- /wp:paragraph -->

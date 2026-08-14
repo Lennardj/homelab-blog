@@ -1,0 +1,77 @@
+<!-- wp:paragraph {"fontSize":"large"} -->
+<p class="has-large-font-size">Building and operating Kubernetes clusters from bare metal — not from a managed control plane.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Managed Kubernetes hides the parts that break. Building a cluster with kubeadm means owning the CNI, the load balancer, storage provisioning, certificate issuance and ingress yourself — and understanding each when it fails.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Cluster architecture</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><strong>kubeadm</strong> — three nodes, one control plane and two workers, bootstrapped from automation rather than by hand.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Calico</strong> — CNI with NetworkPolicy actually enforced, not merely declared.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>MetalLB</strong> — load balancing on bare metal, where no cloud provider exists to hand out an external IP.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>ingress-nginx</strong> — HTTP routing and TLS termination for every service.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>local-path</strong> — dynamic persistent volume provisioning, with its trade-offs understood and documented.</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Networking and security</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>The database in this cluster accepts connections from exactly three workloads — the web application, the backup job, and the administrative CLI. Everything else is denied by default, including anything an attacker might land in.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>That default-deny posture has a sharp edge worth knowing: a missing NetworkPolicy entry does not produce a connection error. The packets are dropped silently and the client hangs until it times out, so the symptom surfaces nowhere near the cause. Every new workload needs its policy considered up front.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Storage, and what it really guarantees</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>ReadWriteOnce does not mean "one pod" — it means <strong>one node</strong>. Multiple pods scheduled to that node can all mount the volume simultaneously.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>I learned this the direct way: a routine memory increase triggered a rolling update on a database Deployment, which cheerfully started a second database process against the live data directory. The storage engine's file lock was the only thing standing between that and corruption.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:quote -->
+<blockquote class="wp-block-quote"><!-- wp:paragraph --><p>InnoDB: Unable to lock ./ibdata1 error: 11</p><!-- /wp:paragraph --></blockquote>
+<!-- /wp:quote -->
+
+<!-- wp:paragraph -->
+<p>The fix is one line — <code>strategy: Recreate</code> — but the lesson is bigger: single-writer workloads on ReadWriteOnce storage need explicit protection, and a latent misconfiguration only surfaces on the first change that exercises it.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Certificates without an inbound path</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Because all traffic arrives through a Cloudflare Tunnel, there is no inbound HTTP route for Let's Encrypt's HTTP-01 challenge to validate. cert-manager proves domain ownership over DNS-01 instead, writing a TXT record via the Cloudflare API. The constraint dictated the design rather than the other way round.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Operations</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><strong>Monitoring</strong> — Prometheus, Grafana and Alertmanager via kube-prometheus-stack, tuned down after learning first-hand what alert fatigue does to your attention.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Backups</strong> — encrypted, off-cluster, scheduled, and with a restore that has actually been performed and verified against live row counts.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Resource management</strong> — limits sized against measured usage, not guessed.</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>The failures are documented in detail — symptom, diagnostics, wrong turns and root cause — on the <a href="/projects/homelab-platform/">Homelab Platform</a> page.</p>
+<!-- /wp:paragraph -->

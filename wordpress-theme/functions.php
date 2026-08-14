@@ -13,6 +13,41 @@
 declare(strict_types=1);
 
 /**
+ * 301 redirects for URLs retired by the 2026-08 site restructure.
+ *
+ * Pages moved under section parents, so their URLs changed (/now/ became
+ * /about/now/, /blog/ became /writing/blog/). WordPress does not redirect a page
+ * whose parent changed - the old path simply 404s - and two of these were
+ * deleted outright. Anything already linking to the old URLs, including the
+ * dev.to articles pointing at this site, would break silently.
+ *
+ * Kept in code rather than a redirect plugin so the mapping is version
+ * controlled and reviewable alongside the structure change that caused it.
+ */
+add_action(
+    'template_redirect',
+    static function (): void {
+        if ( ! is_404() ) {
+            return;
+        }
+
+        $map = array(
+            'now'   => '/about/now/',
+            'blog'  => '/writing/blog/',
+            'learn' => '/education/resources/',
+            'camp'  => '/education/tech-camp/',
+        );
+
+        $path = trim( (string) wp_parse_url( add_query_arg( array() ), PHP_URL_PATH ), '/' );
+
+        if ( isset( $map[ $path ] ) ) {
+            wp_safe_redirect( home_url( $map[ $path ] ), 301 );
+            exit;
+        }
+    }
+);
+
+/**
  * Footer credit line with the current year.
  *
  * WordPress has no core block that renders the current year, and hardcoding it

@@ -71,14 +71,27 @@ done
 # --- pages -------------------------------------------------------------------
 # Upsert by slug. `wp post create` would happily create a fifth page called
 # "About"; looking the slug up first is what makes this re-runnable.
+# Fourth argument is an optional PARENT SLUG. Parents must be created before
+# their children, hence the ordering below. Setting post_parent is what produces
+# the nested URLs (/about/now/ rather than /now/).
 upsert_page() {
   slug="$1"
   title="$2"
   file="$CONTENT_DIR/$3"
+  parent_slug="${4:-}"
 
   if [ ! -f "$file" ]; then
     echo "  !! missing content file: $file" >&2
     return 1
+  fi
+
+  parent_id=0
+  if [ -n "$parent_slug" ]; then
+    parent_id=$(wp post list --post_type=page --name="$parent_slug" --post_status=any --field=ID | head -n1)
+    if [ -z "$parent_id" ]; then
+      echo "  !! parent '$parent_slug' not found for '$slug'" >&2
+      return 1
+    fi
   fi
 
   id=$(wp post list --post_type=page --name="$slug" --post_status=any --field=ID | head -n1)
@@ -89,25 +102,57 @@ upsert_page() {
       --post_title="$title" \
       --post_name="$slug" \
       --post_status=publish \
+      --post_parent="$parent_id" \
       --porcelain)
     echo "  created  $slug (#$id)"
   else
     wp post update "$id" "$file" \
       --post_title="$title" \
-      --post_status=publish >/dev/null
+      --post_status=publish \
+      --post_parent="$parent_id" >/dev/null
     echo "  updated  $slug (#$id)"
   fi
 }
 
 echo "== pages =="
-upsert_page home     "Home"        home.html
-upsert_page blog     "Blog"        blog.html
-upsert_page about    "About"       about.html
-upsert_page projects "Projects"    projects.html
-upsert_page now      "Now"         now.html
-upsert_page learn    "Learn"       learn.html
-upsert_page camp     "Tech Camp"   camp.html
-upsert_page resume   "Resume"      resume.html
+upsert_page home     "Home"     home.html
+upsert_page resume   "Resume"   resume.html
+
+# About
+upsert_page about    "About"    about.html
+upsert_page about-me "About Me" about-me.html about
+upsert_page now      "Now"      now.html      about
+
+# Projects
+upsert_page projects "Projects" projects.html
+upsert_page homelab-platform            "Homelab Platform"              homelab-platform.html            projects
+upsert_page azure-school-infrastructure "Azure School Infrastructure"   azure-school-infrastructure.html projects
+upsert_page kubernetes                  "Kubernetes"                    kubernetes.html                  projects
+upsert_page infrastructure-automation   "Infrastructure Automation"     infrastructure-automation.html   projects
+upsert_page education-digital-technology "Education & Digital Technology" education-digital-technology.html projects
+
+# Writing
+upsert_page writing   "Writing"   writing.html
+upsert_page blog      "Blog"      blog.html      writing
+upsert_page guides    "Guides"    guides.html    writing
+upsert_page lab-notes "Lab Notes" lab-notes.html writing
+
+# Education
+upsert_page education "Education" education.html
+upsert_page teaching  "Teaching"  teaching.html  education
+upsert_page tech-camp "Tech Camp" tech-camp.html education
+upsert_page resources "Resources" resources.html education
+
+# Retired pages. Their content moved into the new structure; functions.php
+# 301-redirects the old URLs so existing links do not break.
+echo "== retired pages =="
+for old in learn camp; do
+  oid=$(wp post list --post_type=page --name="$old" --post_status=any --field=ID | head -n1)
+  if [ -n "$oid" ]; then
+    wp post delete "$oid" --force >/dev/null
+    echo "  deleted  $old (#$oid)"
+  fi
+done
 
 # --- posts -------------------------------------------------------------------
 # Articles republished from dev.to. Upserted by slug like pages, so re-running
@@ -208,16 +253,39 @@ wp rewrite flush --hard
 # not as a classic nav menu. Rebuilt from scratch each run so the menu always
 # matches this script rather than drifting.
 echo "== navigation =="
+# Submenus use wp:navigation-submenu, which is itself a link - so the parent
+# item stays clickable and each section landing page is reachable, rather than
+# being a dead label that only opens a dropdown.
 NAV_FILE=$(mktemp)
 {
   printf '<!-- wp:navigation-link {"label":"Home","url":"/","kind":"custom","isTopLevelLink":true} /-->\n'
-  printf '<!-- wp:navigation-link {"label":"About","url":"/about/","kind":"custom","isTopLevelLink":true} /-->\n'
-  printf '<!-- wp:navigation-link {"label":"Projects","url":"/projects/","kind":"custom","isTopLevelLink":true} /-->\n'
-  printf '<!-- wp:navigation-link {"label":"Blog","url":"/blog/","kind":"custom","isTopLevelLink":true} /-->\n'
-  printf '<!-- wp:navigation-link {"label":"Learn","url":"/learn/","kind":"custom","isTopLevelLink":true} /-->\n'
-  printf '<!-- wp:navigation-link {"label":"Tech Camp","url":"/camp/","kind":"custom","isTopLevelLink":true} /-->\n'
+
+  printf '<!-- wp:navigation-submenu {"label":"About","url":"/about/","kind":"custom","isTopLevelItem":true} -->\n'
+  printf '  <!-- wp:navigation-link {"label":"About Me","url":"/about/about-me/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Now","url":"/about/now/","kind":"custom"} /-->\n'
+  printf '<!-- /wp:navigation-submenu -->\n'
+
+  printf '<!-- wp:navigation-submenu {"label":"Projects","url":"/projects/","kind":"custom","isTopLevelItem":true} -->\n'
+  printf '  <!-- wp:navigation-link {"label":"Homelab Platform","url":"/projects/homelab-platform/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Azure School Infrastructure","url":"/projects/azure-school-infrastructure/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Kubernetes","url":"/projects/kubernetes/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Infrastructure Automation","url":"/projects/infrastructure-automation/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Education &amp; Digital Technology","url":"/projects/education-digital-technology/","kind":"custom"} /-->\n'
+  printf '<!-- /wp:navigation-submenu -->\n'
+
+  printf '<!-- wp:navigation-submenu {"label":"Writing","url":"/writing/","kind":"custom","isTopLevelItem":true} -->\n'
+  printf '  <!-- wp:navigation-link {"label":"Blog","url":"/writing/blog/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Guides","url":"/writing/guides/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Lab Notes","url":"/writing/lab-notes/","kind":"custom"} /-->\n'
+  printf '<!-- /wp:navigation-submenu -->\n'
+
+  printf '<!-- wp:navigation-submenu {"label":"Education","url":"/education/","kind":"custom","isTopLevelItem":true} -->\n'
+  printf '  <!-- wp:navigation-link {"label":"Teaching","url":"/education/teaching/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Tech Camp","url":"/education/tech-camp/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Resources","url":"/education/resources/","kind":"custom"} /-->\n'
+  printf '<!-- /wp:navigation-submenu -->\n'
+
   printf '<!-- wp:navigation-link {"label":"Resume","url":"/resume/","kind":"custom","isTopLevelLink":true} /-->\n'
-  printf '<!-- wp:navigation-link {"label":"Now","url":"/now/","kind":"custom","isTopLevelLink":true} /-->\n'
 } > "$NAV_FILE"
 
 NAV_ID=$(wp post list --post_type=wp_navigation --post_status=any --field=ID | head -n1)
