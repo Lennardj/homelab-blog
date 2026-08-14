@@ -379,7 +379,13 @@ Pages: `home` (front page), `blog` (posts index), `about`, `projects`, `now`, `l
 
 Three articles originally published on dev.to are mirrored here, stored in `wordpress-content/posts/` and upserted by slug like pages.
 
-**No new theme was needed.** The blog index and single-post views come from `twentytwentyfive`'s `home.html` and `single.html` templates, inherited by the child theme. Now that the theme is git-synced rather than ConfigMap-delivered, these can be overridden with `wordpress-theme/templates/*.html` when custom layout is wanted.
+**No new theme was needed**, but the blog index needed its own template. `twentytwentyfive`'s default `home.html` renders **full post content** for every post, so the index read as all three articles concatenated into one very long page rather than a list.
+
+`wordpress-theme/templates/home.html` overrides it with a query loop rendering cards: post date, linked title, tag chips, excerpt and a "Read more" link. The grid uses `minimumColumnWidth: 20rem` rather than a fixed column count, so it collapses to a single column on narrow screens with no media query. Card styling is `.lj-post-cards` in `style.css`.
+
+**This template is the first thing the ConfigMap delivery could not have carried** — ConfigMap keys cannot contain `/`, so `templates/home.html` was impossible until the theme moved to git-sync.
+
+**Excerpts are set explicitly** in `wp-bootstrap.sh` via `--post_excerpt`. Without them WordPress auto-generates one by truncating the opening lines, which for these posts produced weak card summaries.
 
 **Front page vs posts page:** `show_on_front=page` with `page_on_front` → Home and `page_for_posts` → Blog. The Blog page's own content is ignored — WordPress renders the post list through the theme's template instead.
 
