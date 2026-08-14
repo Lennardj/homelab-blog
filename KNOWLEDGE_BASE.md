@@ -373,7 +373,23 @@ The script is **idempotent** — pages are upserted by slug, so re-running updat
 
 **Scope boundary, stated explicitly:** this makes the site *skeleton* reproducible from Git — which pages exist, their content, the menu, the title. It does **not** make WordPress reproducible. Posts written later, uploaded media, plugin settings and user accounts live in the database and PVC and remain a restore-from-backup concern.
 
-Pages: `home` (front page), `about`, `projects`, `now`, `learn`, `camp`, `resume`. The last three are placeholders for Phases 4–9. WordPress's default `Hello world!` post and `Sample Page` were deleted.
+Pages: `home` (front page), `blog` (posts index), `about`, `projects`, `now`, `learn`, `camp`, `resume`. The last three are placeholders for Phases 4–9. WordPress's default `Hello world!` post and `Sample Page` were deleted.
+
+### Blog and republished posts
+
+Three articles originally published on dev.to are mirrored here, stored in `wordpress-content/posts/` and upserted by slug like pages.
+
+**No new theme was needed.** The blog index and single-post views come from `twentytwentyfive`'s `home.html` and `single.html` templates, inherited by the child theme. Now that the theme is git-synced rather than ConfigMap-delivered, these can be overridden with `wordpress-theme/templates/*.html` when custom layout is wanted.
+
+**Front page vs posts page:** `show_on_front=page` with `page_on_front` → Home and `page_for_posts` → Blog. The Blog page's own content is ignored — WordPress renders the post list through the theme's template instead.
+
+**`post_date` is set to the original publication date**, so the archive reads in true chronological order rather than showing three articles all published the day they were imported.
+
+**Canonical URLs.** Each post carries a `_canonical_url` meta pointing at the dev.to original, emitted by `wordpress-theme/functions.php`. Without it the same text lives at two URLs with no signal about which is authoritative, and search engines default to the higher-authority domain — meaning your own site loses to dev.to.
+
+`functions.php` also removes WordPress's built-in `rel_canonical` when the meta is set; two competing canonical tags on one page are treated as no canonical at all.
+
+> To make **this site** canonical instead (better long term — own your content): clear the `_canonical_url` meta and set `canonical_url` on the dev.to article to point back at `lennardjohn.org`. dev.to supports this in its article settings.
 
 ### Domain cleanup with WP-CLI (2026-08-14)
 
