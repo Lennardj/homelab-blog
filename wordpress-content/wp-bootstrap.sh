@@ -126,6 +126,7 @@ upsert_post() {
   date="$4"
   canonical="$5"
   tags="$6"
+  excerpt="$7"
 
   if [ ! -f "$file" ]; then
     echo "  !! missing content file: $file" >&2
@@ -142,6 +143,7 @@ upsert_post() {
       --post_status=publish \
       --post_date="$date" \
       --tags_input="$tags" \
+      --post_excerpt="$excerpt" \
       --porcelain)
     echo "  created  $slug (#$id)"
   else
@@ -149,7 +151,8 @@ upsert_post() {
       --post_title="$title" \
       --post_status=publish \
       --post_date="$date" \
-      --tags_input="$tags" >/dev/null
+      --tags_input="$tags" \
+      --post_excerpt="$excerpt" >/dev/null
     echo "  updated  $slug (#$id)"
   fi
 
@@ -162,21 +165,24 @@ upsert_post fixing-proxmox-terraform-deletes \
   fixing-proxmox-terraform-deletes.html \
   "2026-04-07 20:53:52" \
   "https://dev.to/lennardj/fixing-proxmox-terraform-deletes-with-curl-jq-4p54" \
-  "devops,terraform,automation"
+  "devops,terraform,automation" \
+  "The Proxmox Terraform provider cannot delete a running VM, so every destroy failed the pipeline. A small curl and jq workaround that stops the VM first."
 
 upsert_post built-a-production-platform \
   "I Built a Production Platform… Just to Write a Blog" \
   built-a-production-platform.html \
   "2026-03-31 09:24:21" \
   "https://dev.to/lennardj/i-built-a-production-platform-just-to-write-a-blog-5b91" \
-  "devops,kubernetes,terraform,ansible"
+  "devops,kubernetes,terraform,ansible" \
+  "I wanted a place to write. I ended up with a 3-node Kubernetes cluster on bare metal, automated end to end with Terraform and Ansible, plus GitOps, monitoring and a zero-trust tunnel. Why, and everything that broke."
 
 upsert_post lpic-1-101-1-cheat-sheet \
   "LPIC-1 Lesson 101.1 Cheat Sheet" \
   lpic-1-101-1-cheat-sheet.html \
   "2025-01-16 08:06:31" \
   "https://dev.to/lennardj/lpic-1-lesson-1011-cheat-sheet-4p5" \
-  "lpic1,linux"
+  "lpic1,linux" \
+  "Hardware discovery, kernel modules, pseudo-filesystems and package managers — a condensed reference for LPIC-1 objective 101.1."
 
 # --- front page and posts page -----------------------------------------------
 # Without show_on_front=page, WordPress shows the post roll at / instead of the

@@ -1,0 +1,57 @@
+<!-- wp:template-part {"slug":"header","tagName":"header"} /-->
+
+<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->
+<main class="wp-block-group">
+
+	<!-- wp:group {"style":{"spacing":{"margin":{"top":"3rem","bottom":"1rem"}}},"layout":{"type":"constrained"}} -->
+	<div class="wp-block-group" style="margin-top:3rem;margin-bottom:1rem">
+		<!-- wp:heading {"level":1} -->
+		<h1 class="wp-block-heading">Blog</h1>
+		<!-- /wp:heading -->
+
+		<!-- wp:paragraph -->
+		<p>Notes on building and breaking infrastructure. Some of these were first published on dev.to.</p>
+		<!-- /wp:paragraph -->
+	</div>
+	<!-- /wp:group -->
+
+	<!-- wp:separator -->
+	<hr class="wp-block-separator has-alpha-channel-opacity"/>
+	<!-- /wp:separator -->
+
+	<!-- The card grid. minimumColumnWidth rather than a fixed columnCount, so it
+	     collapses to one column on narrow screens without a media query. -->
+	<!-- wp:query {"queryId":0,"query":{"perPage":12,"pages":0,"offset":0,"postType":"post","order":"desc","orderBy":"date","inherit":true},"align":"wide","layout":{"type":"default"}} -->
+	<div class="wp-block-query alignwide">
+
+		<!-- wp:post-template {"className":"lj-post-cards","layout":{"type":"grid","minimumColumnWidth":"20rem"}} -->
+
+			<!-- wp:post-date {"format":"j M Y","fontSize":"small"} /-->
+
+			<!-- wp:post-title {"level":2,"isLink":true,"fontSize":"large"} /-->
+
+			<!-- wp:post-terms {"term":"post_tag","fontSize":"small"} /-->
+
+			<!-- wp:post-excerpt {"moreText":"Read more →","excerptLength":30} /-->
+
+		<!-- /wp:post-template -->
+
+		<!-- wp:query-no-results -->
+			<!-- wp:paragraph -->
+			<p>Nothing published yet.</p>
+			<!-- /wp:paragraph -->
+		<!-- /wp:query-no-results -->
+
+		<!-- wp:query-pagination {"layout":{"type":"flex","justifyContent":"space-between"}} -->
+			<!-- wp:query-pagination-previous /-->
+			<!-- wp:query-pagination-numbers /-->
+			<!-- wp:query-pagination-next /-->
+		<!-- /wp:query-pagination -->
+
+	</div>
+	<!-- /wp:query -->
+
+</main>
+<!-- /wp:group -->
+
+<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->
