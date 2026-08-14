@@ -365,9 +365,17 @@ scp /tmp/wpcontent.tgz lennard@192.168.1.70:/tmp/
 ssh lennard@192.168.1.70
 rm -rf /tmp/content && mkdir -p /tmp/content && tar -xzf /tmp/wpcontent.tgz -C /tmp/content
 POD=$(kubectl get pod -n wordpress -l app=wpcli -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n wordpress $POD -- rm -rf /tmp/content     # REQUIRED - see below
 kubectl cp /tmp/content wordpress/$POD:/tmp/content
 kubectl exec -n wordpress deploy/wpcli -- sh /tmp/content/wp-bootstrap.sh
 ```
+
+> ⚠️ **`kubectl cp` nests the copy if the destination already exists.** Copying `wordpress-content` to `pod:/tmp/content` when `/tmp/content` is already present creates `/tmp/content/content/` and leaves the previous files at `/tmp/content/`. The bootstrap then reads the **stale** files and reports `updated` for every page while silently reapplying old content — a failure indistinguishable from success in the output.
+>
+> This was only ever masked because earlier deploys included `kubectl rollout restart`, which wipes the pod's `/tmp`. Always `rm -rf /tmp/content` in the pod first. Verify with:
+> ```bash
+> kubectl exec -n wordpress deploy/wpcli -- ls -d /tmp/content/content   # should not exist
+> ```
 
 The script is **idempotent** — pages are upserted by slug, so re-running updates in place rather than creating duplicates. It sets the site title, the static front page, permalinks, and rebuilds the block-theme navigation (`wp_navigation` post).
 

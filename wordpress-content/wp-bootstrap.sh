@@ -17,8 +17,16 @@
 # This runs INSIDE the wpcli pod, which has the content files copied to
 # /tmp/content. From the master node:
 #
-#   kubectl cp wordpress-content wordpress/<wpcli-pod>:/tmp/content
+#   POD=$(kubectl get pod -n wordpress -l app=wpcli -o jsonpath='{.items[0].metadata.name}')
+#   kubectl exec -n wordpress $POD -- rm -rf /tmp/content     # <- REQUIRED
+#   kubectl cp /tmp/content wordpress/$POD:/tmp/content
 #   kubectl exec -n wordpress deploy/wpcli -- sh /tmp/content/wp-bootstrap.sh
+#
+# The `rm -rf` is NOT optional. `kubectl cp <dir> pod:/path` NESTS the copy when
+# /path already exists, producing /tmp/content/content/ while the stale files
+# stay at /tmp/content/. This script then reads the OLD files and reports
+# "updated" for every page while silently reapplying previous content - a
+# failure that looks exactly like success. Deleting the target first is the fix.
 set -eu
 
 CONTENT_DIR="${CONTENT_DIR:-/tmp/content}"
