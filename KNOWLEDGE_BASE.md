@@ -307,11 +307,20 @@ Note `selfHeal: true` will revert manual changes once Argo CD is healthy again �
 - Usage: `kubectl exec -n wordpress deploy/wpcli -- wp <args>`, or `scripts/wp.sh <args>`
 - Park with `kubectl scale deploy/wpcli -n wordpress --replicas=0`
 
-### Design: child theme via ConfigMap
+### Design: child theme synced from Git by an initContainer
 
-The site's design is a **child theme of `twentytwentyfive`, delivered as a ConfigMap** (`kubernetes/wordpress/theme-configmap.yaml`) and mounted at `wp-content/themes/lennardjohn/`. Three flat files: `style.css`, `theme.json`, `functions.php`.
+The site's design is a **child theme of `twentytwentyfive`**, living in `wordpress-theme/` in this repo. An **initContainer clones the repo at pod start** and copies the theme into an `emptyDir` mounted at `wp-content/themes/lennardjohn/`.
 
-**Why not upload a theme through wp-admin:** an uploaded theme lives only on the PVC — not in Git, not managed by Argo CD, and gone with the volume. As a ConfigMap the design is declarative, diffable, and survives PVC loss.
+**This replaced a ConfigMap-delivered theme.** ConfigMaps were not size-limited in practice (the theme was 24KB of ~1MB) — the blocker was **shape**: ConfigMap keys cannot contain `/`, so `templates/`, `patterns/` and `assets/` were all impossible, and binary files such as fonts do not belong in one. A git clone has none of those limits.
+
+**Why `emptyDir` and not the PVC:** the theme is refetched on every pod start and never touches persistent storage, so it cannot drift or be silently edited into a different state through wp-admin. The cost is that pod start depends on reaching GitHub. If that becomes unacceptable, the initContainer can sync onto the PVC instead — trading immutability for availability.
+
+> ⚠️ **A theme change in Git does not deploy by itself.** Argo CD reconciles manifests, and the manifest does not change when the theme does. After pushing theme changes:
+> ```bash
+> kubectl rollout restart deploy/wordpress deploy/wpcli -n wordpress
+> ```
+
+**Why not upload a theme through wp-admin:** an uploaded theme lives only on the PVC — not in Git, not managed by Argo CD, and gone with the volume.
 
 **Why not Elementor:** it stores page designs as serialized JSON in `_elementor_data` — opaque and unreviewable. `theme.json` plus block markup is plain text.
 
@@ -321,12 +330,26 @@ Monospace is used for headings, navigation, buttons and code; a system sans for 
 
 **The ConfigMap must be mounted on BOTH pods.** The `wordpress` pod needs it to serve the theme; the `wpcli` pod needs it to *see* the theme. WP-CLI scans the themes directory on its own filesystem — without the mount, `wp theme list` does not show `lennardjohn` and activation fails with "not found" while the live site renders it perfectly. **General rule: any file the web pod reads from a mount, the CLI pod needs the same mount to administer.**
 
-**Constraints this delivery imposes:**
-- ConfigMaps cap at ~1MB — fine for CSS/JSON, not for fonts or images
-- Keys cannot contain `/`, so the theme must stay **flat**; custom block templates (`templates/*.html`) would need a different delivery
-- No webfonts are loaded; font stacks use fonts already on the visitor's system, avoiding a third-party request per page view
+**Now possible with git-sync that was not with a ConfigMap:** `templates/*.html` block templates, `patterns/`, bundled webfonts, images, and JS — no size or layout restrictions.
 
-Changing the design = edit the ConfigMap, commit, let Argo CD sync. The WordPress pod restarts (whole-directory ConfigMap mounts do update in place, but a restart guarantees PHP opcache is cleared).
+No webfonts are currently loaded; font stacks use fonts already on the visitor's system, avoiding a third-party request per page view.
+
+### Plugins
+
+Declared in `scripts/wp-bootstrap.sh` rather than installed by clicking, so the plugin set is reproducible. They install onto the PVC, which the nightly backup covers.
+
+| Plugin | Status | Purpose |
+|---|---|---|
+| `kadence-blocks` | active | Carousels, sliders, tabs, accordions — **as blocks**, so pages stay readable block markup rather than opaque builder JSON. Same property that ruled out Elementor |
+| `woocommerce` | installed, inactive | Phase 6 payments. Inert until activated |
+| `ai-provider-for-anthropic` | inactive | Official WordPress AI Team provider shim; does nothing without an API key |
+| `akismet`, `hello` | inactive | WordPress defaults |
+
+### Two constraints worth knowing before designing further
+
+**`local-path` enforces no quota.** `df` inside the pod reports the *node's* disk (68G, ~57G free), not the 8Gi the PVC requests. The request is decorative — a runaway upload can fill worker-2's root filesystem and take the node with it. Capacity is generous; the guard rail does not exist.
+
+**Do not self-host course video.** Cloudflare's terms prohibit serving video or a disproportionate share of non-HTML content through the CDN unless it is hosted on a Cloudflare service (Stream, Images, R2). The entire site sits behind that proxy. Tutor LMS supports YouTube and Vimeo embedding natively — that is the intended path, and it also avoids residential upload bandwidth becoming the bottleneck.
 
 ### Site content (Phase 3)
 
