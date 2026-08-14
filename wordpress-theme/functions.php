@@ -13,6 +13,26 @@
 declare(strict_types=1);
 
 /**
+ * Footer credit line with the current year.
+ *
+ * WordPress has no core block that renders the current year, and hardcoding it
+ * into the template guarantees a footer that silently goes stale every January.
+ * A shortcode is the smallest correct fix; parts/footer.html calls it through a
+ * wp:shortcode block, because plain paragraph blocks in a template part do not
+ * run shortcodes.
+ */
+add_shortcode(
+    'lj_footer_credit',
+    static function (): string {
+        return sprintf(
+            '<p class="has-small-font-size">&copy; %s %s</p>',
+            esc_html( wp_date( 'Y' ) ),
+            esc_html( get_bloginfo( 'name' ) )
+        );
+    }
+);
+
+/**
  * Emit a canonical link for posts republished from elsewhere.
  *
  * Three posts here were originally published on dev.to. Serving the same text at

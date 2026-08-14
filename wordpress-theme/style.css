@@ -210,6 +210,80 @@ a:not(.wp-block-button__link):hover {
 }
 
 /* ---------------------------------------------------------------------
+   Footer.
+   --------------------------------------------------------------------- */
+.lj-footer .wp-block-site-title {
+  margin: 0;
+}
+
+.lj-footer .wp-block-site-title a {
+  color: var(--wp--preset--color--accent-1);
+  text-decoration: none;
+  font-size: 1.1rem;
+}
+
+.lj-footer .wp-block-site-tagline {
+  color: var(--wp--preset--color--accent-2);
+  margin: 0.25rem 0 0;
+}
+
+/* Section labels, matching the "// homelab" style of the original page. */
+.lj-footer__label {
+  font-family: var(--wp--preset--font-family--mono);
+  color: var(--wp--preset--color--accent-5);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-size: 0.7rem !important;
+  margin: 0 0 0.75rem;
+}
+
+.lj-footer__links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  line-height: 2;
+}
+
+.lj-footer__links li::marker {
+  content: none;
+}
+
+.lj-footer__links a {
+  color: var(--wp--preset--color--accent-2);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.lj-footer__links a:hover {
+  color: var(--wp--preset--color--accent-1);
+}
+
+.lj-footer__base {
+  color: var(--wp--preset--color--accent-5);
+  font-family: var(--wp--preset--font-family--mono);
+}
+
+.lj-footer__base p {
+  margin: 0;
+  color: var(--wp--preset--color--accent-5);
+  font-size: 0.78rem;
+}
+
+.lj-footer__base a {
+  color: var(--wp--preset--color--accent-2);
+}
+
+.lj-footer__base a:hover {
+  color: var(--wp--preset--color--accent-1);
+}
+
+/* Footer columns stack on narrow screens with usable spacing. */
+@media (max-width: 781px) {
+  .lj-footer__cols { gap: 2rem; }
+  .lj-footer__base { gap: 0.75rem; }
+}
+
+/* ---------------------------------------------------------------------
    Blog index - post cards.
    The grid itself comes from the post-template block layout in
    templates/home.html; this styles each card. Each <li> is one post.

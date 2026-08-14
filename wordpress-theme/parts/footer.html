@@ -1,0 +1,80 @@
+<!-- Replaces twentytwentyfive's stock footer, which shipped demo placeholder
+     navigation (FAQs, Authors, Events, Shop, Patterns, Themes) with every link
+     pointing at "#", plus the theme name and a "Designed with WordPress" credit.
+     Eight dead links is worse than no footer. -->
+<!-- wp:group {"style":{"spacing":{"padding":{"top":"3rem","bottom":"2.5rem"}}},"className":"lj-footer","layout":{"type":"constrained"}} -->
+<div class="wp-block-group lj-footer" style="padding-top:3rem;padding-bottom:2.5rem">
+
+	<!-- wp:separator -->
+	<hr class="wp-block-separator has-alpha-channel-opacity"/>
+	<!-- /wp:separator -->
+
+	<!-- wp:columns {"className":"lj-footer__cols"} -->
+	<div class="wp-block-columns lj-footer__cols">
+
+		<!-- wp:column -->
+		<div class="wp-block-column">
+			<!-- wp:site-title {"level":3} /-->
+			<!-- wp:site-tagline {"fontSize":"small"} /-->
+		</div>
+		<!-- /wp:column -->
+
+		<!-- wp:column -->
+		<div class="wp-block-column">
+			<!-- wp:paragraph {"fontSize":"small","className":"lj-footer__label"} -->
+			<p class="lj-footer__label has-small-font-size">// site</p>
+			<!-- /wp:paragraph -->
+
+			<!-- wp:list {"className":"lj-footer__links"} -->
+			<ul class="wp-block-list lj-footer__links">
+				<!-- wp:list-item --><li><a href="/about/">About</a></li><!-- /wp:list-item -->
+				<!-- wp:list-item --><li><a href="/projects/">Projects</a></li><!-- /wp:list-item -->
+				<!-- wp:list-item --><li><a href="/blog/">Blog</a></li><!-- /wp:list-item -->
+				<!-- wp:list-item --><li><a href="/now/">Now</a></li><!-- /wp:list-item -->
+			</ul>
+			<!-- /wp:list -->
+		</div>
+		<!-- /wp:column -->
+
+		<!-- wp:column -->
+		<div class="wp-block-column">
+			<!-- wp:paragraph {"fontSize":"small","className":"lj-footer__label"} -->
+			<p class="lj-footer__label has-small-font-size">// elsewhere</p>
+			<!-- /wp:paragraph -->
+
+			<!-- wp:list {"className":"lj-footer__links"} -->
+			<ul class="wp-block-list lj-footer__links">
+				<!-- wp:list-item --><li><a href="https://github.com/Lennardj" target="_blank" rel="noreferrer noopener">GitHub</a></li><!-- /wp:list-item -->
+				<!-- wp:list-item --><li><a href="https://www.linkedin.com/in/lennardjohn/" target="_blank" rel="noreferrer noopener">LinkedIn</a></li><!-- /wp:list-item -->
+				<!-- wp:list-item --><li><a href="https://www.youtube.com/@mrjohnhomelab" target="_blank" rel="noreferrer noopener">YouTube</a></li><!-- /wp:list-item -->
+				<!-- wp:list-item --><li><a href="https://dev.to/lennardj" target="_blank" rel="noreferrer noopener">Dev.to</a></li><!-- /wp:list-item -->
+			</ul>
+			<!-- /wp:list -->
+		</div>
+		<!-- /wp:column -->
+
+	</div>
+	<!-- /wp:columns -->
+
+	<!-- wp:separator -->
+	<hr class="wp-block-separator has-alpha-channel-opacity"/>
+	<!-- /wp:separator -->
+
+	<!-- The year comes from a shortcode registered in functions.php. WordPress
+	     has no core "current year" block, and hardcoding it guarantees a stale
+	     footer every January. wp:shortcode is used because plain paragraph
+	     blocks in a template part do not run shortcodes. -->
+	<!-- wp:group {"className":"lj-footer__base","layout":{"type":"flex","justifyContent":"space-between","flexWrap":"wrap"}} -->
+	<div class="wp-block-group lj-footer__base">
+		<!-- wp:shortcode -->
+		[lj_footer_credit]
+		<!-- /wp:shortcode -->
+
+		<!-- wp:paragraph {"fontSize":"small"} -->
+		<p class="has-small-font-size">Self-hosted on Kubernetes &middot; <a href="https://github.com/Lennardj/homelab-blog" target="_blank" rel="noreferrer noopener">source</a></p>
+		<!-- /wp:paragraph -->
+	</div>
+	<!-- /wp:group -->
+
+</div>
+<!-- /wp:group -->
