@@ -1,0 +1,228 @@
+<!-- wp:paragraph -->
+<p>I know this might be easy for most, but as I've learnt something new while reviewing this, I am sure someone else will too.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">BIOS vs UEFI</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><strong>BIOS</strong> — Basic Input Output System</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>UEFI</strong> — Unified Extensible Firmware Interface</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>BIOS is older; UEFI is newer and improved</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Hardware discovery</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>A kernel module is similar to a driver on Windows.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">lspci</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Shows all devices currently connected to the PCI (Peripheral Component Interconnect) bus.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>lspci                    # list all available pci devices
+lspci -s [hex_address] -v # verbose detail about a specific device
+lspci -s [hex_address] -k # verify which kernel module is in use</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">lsusb</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Lists USB (Universal Serial Bus) devices currently connected to the machine.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>lsusb              # list usb devices
+lsusb -v -d [ID]   # detailed output for a specific device by ID
+lsusb -t           # show current usb device mapping as a tree
+lsusb -s bus:dev   # verify which device is using that module, e.g. lsusb -s 01:02</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Others</h3>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><code>lshw</code> — extracts detailed information about hardware</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>lsblk</code> — lists block devices</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Kernel modules</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p><code>kmod</code> is the preferable way to interact with kernel modules, and can also be called using:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><code>modprobe</code> — add and remove modules from the Linux kernel</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>lsmod</code> — shows the status of modules in the Linux kernel</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>rmmod</code> — simple program to remove a module from the kernel</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>insmod</code> — simple program to insert a module into the kernel</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>modinfo</code> — shows info about a kernel module</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>depmod</code> — generates modules.dep and map files</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>sudo modprobe module_name        # load a module
+sudo modprobe -r module_name     # remove a module
+sudo rmmod module_name           # remove a module
+sudo rmmod -f module_name        # force remove a module
+sudo insmod /path/to/module.ko   # load a module, does NOT handle dependencies
+modinfo module_name              # detailed information about a kernel module
+modinfo -p module_name           # list specific module parameters
+depmod -a kernel_version         # generate for a specific kernel version</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Important files</h3>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><code>/etc/modules</code> — add modules here to load at boot (deprecated)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/etc/modprobe.d/</code> — use instead of <code>/etc/modules</code>; add module config files here to load at boot</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>Kernel module parameters can be changed while the kernel is at boot:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><code>/etc/modprobe.conf</code> — customise module parameters to make them persistent</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/etc/modprobe.d/</code> — add individual <code>.conf</code> files to customise module parameters</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/etc/modprobe.d/blacklist.conf</code> — add a module name here to block it loading</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/etc/modprobe.d/&lt;module_name&gt;.conf</code> — preferred method for blocking a module, containing settings specific only to that module</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Pseudo-filesystems</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>These only exist while the system is running, and are not intended for conventional file storage.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">/proc</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Contains files with information regarding running processes and hardware resources.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><code>/proc/cpuinfo</code> — detailed information about the CPU(s) found by the operating system</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/proc/interrupts</code> — numbers of interrupts per IO device for each CPU</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/proc/ioports</code> — currently registered Input/Output port regions in use</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/proc/dma</code> — registered DMA (direct memory access) channels in use</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">sysfs</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>A pseudo-filesystem providing an interface to kernel data structures. The files under sysfs provide information about devices, kernel modules, filesystems and other kernel components, all mounted in <code>/sys</code>.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p><code>/sys</code> has a similar role to <code>/proc</code>, but with the specific purpose of <strong>storing device information and kernel data related to hardware</strong>.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">udev subsystem</h3>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Removable devices are handled by the udev subsystem, which creates the corresponding devices in <code>/dev</code>.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><code>/dev/</code> — every file inside is associated with a system device, particularly storage devices</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/etc/udev/rules.d/</code> — as new devices are detected, udev searches here for a matching rule</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><code>/dev/hdc</code> — CD/DVD</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/dev/fd0</code> — floppy disk</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/dev/sda</code> — IDE, SSD and USB</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/dev/mmcblk0p1</code> — SD cards</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><code>/dev/nvme0n1p1</code> — NVMe</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>Since Linux kernel version <strong>2.4</strong>, most storage devices are identified as if they were <strong>SCSI devices</strong>, regardless of their hardware type.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Linux distributions and package managers</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><strong>Debian-based</strong> — uses <code>dpkg</code>, with apt (Advanced Packaging Tool) as package manager</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>RPM-based</strong> — uses <code>rpm</code>, with yum (Yellowdog Updater Modified) or DNF as package manager</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Debian-based common commands</h3>
+<!-- /wp:heading -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>sudo dpkg -i [package.deb]   # install
+sudo dpkg -r [package]       # remove
+sudo dpkg -P [package]       # purge: remove config files
+sudo dpkg -c [package.deb]   # list contents
+dpkg -s [package]            # check status
+sudo dpkg -R -i [directory]  # install from directory
+dpkg -I [package.deb]        # show package info
+sudo dpkg --unpack [package.deb]  # unpack contents
+dpkg -l                      # list installed packages</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">RPM-based common commands</h3>
+<!-- /wp:heading -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>sudo rpm -ivh [package.rpm]  # install
+sudo rpm -e [package]        # remove
+sudo rpm -Uvh [package.rpm]  # upgrade
+
+rpm -Vp [package.rpm]        # verify (specific)
+rpm -Va                      # verify (all)
+
+# query
+rpm -qdf [package]           # documentation
+rpm -qi [package]            # installed info
+rpm -qip [package.rpm]       # package info from file</code></pre>
+<!-- /wp:code -->

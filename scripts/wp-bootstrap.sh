@@ -101,6 +101,7 @@ upsert_page() {
 
 echo "== pages =="
 upsert_page home     "Home"        home.html
+upsert_page blog     "Blog"        blog.html
 upsert_page about    "About"       about.html
 upsert_page projects "Projects"    projects.html
 upsert_page now      "Now"         now.html
@@ -108,13 +109,87 @@ upsert_page learn    "Learn"       learn.html
 upsert_page camp     "Tech Camp"   camp.html
 upsert_page resume   "Resume"      resume.html
 
-# --- front page --------------------------------------------------------------
-# Without this WordPress shows the blog roll at /, not the landing page.
+# --- posts -------------------------------------------------------------------
+# Articles republished from dev.to. Upserted by slug like pages, so re-running
+# updates rather than duplicating.
+#
+# post_date is set to the ORIGINAL publication date so the archive reads in true
+# chronological order rather than showing everything as published today.
+#
+# _canonical_url points at the dev.to original. Without it, the same text lives
+# at two URLs with no signal about which is authoritative, and search engines
+# default to the higher-authority domain. See functions.php.
+upsert_post() {
+  slug="$1"
+  title="$2"
+  file="$CONTENT_DIR/posts/$3"
+  date="$4"
+  canonical="$5"
+  tags="$6"
+
+  if [ ! -f "$file" ]; then
+    echo "  !! missing content file: $file" >&2
+    return 1
+  fi
+
+  id=$(wp post list --post_type=post --name="$slug" --post_status=any --field=ID | head -n1)
+
+  if [ -z "$id" ]; then
+    id=$(wp post create "$file" \
+      --post_type=post \
+      --post_title="$title" \
+      --post_name="$slug" \
+      --post_status=publish \
+      --post_date="$date" \
+      --tags_input="$tags" \
+      --porcelain)
+    echo "  created  $slug (#$id)"
+  else
+    wp post update "$id" "$file" \
+      --post_title="$title" \
+      --post_status=publish \
+      --post_date="$date" \
+      --tags_input="$tags" >/dev/null
+    echo "  updated  $slug (#$id)"
+  fi
+
+  wp post meta update "$id" _canonical_url "$canonical" >/dev/null
+}
+
+echo "== posts =="
+upsert_post fixing-proxmox-terraform-deletes \
+  "Fixing Proxmox Terraform Deletes with curl + jq" \
+  fixing-proxmox-terraform-deletes.html \
+  "2026-04-07 20:53:52" \
+  "https://dev.to/lennardj/fixing-proxmox-terraform-deletes-with-curl-jq-4p54" \
+  "devops,terraform,automation"
+
+upsert_post built-a-production-platform \
+  "I Built a Production Platform… Just to Write a Blog" \
+  built-a-production-platform.html \
+  "2026-03-31 09:24:21" \
+  "https://dev.to/lennardj/i-built-a-production-platform-just-to-write-a-blog-5b91" \
+  "devops,kubernetes,terraform,ansible"
+
+upsert_post lpic-1-101-1-cheat-sheet \
+  "LPIC-1 Lesson 101.1 Cheat Sheet" \
+  lpic-1-101-1-cheat-sheet.html \
+  "2025-01-16 08:06:31" \
+  "https://dev.to/lennardj/lpic-1-lesson-1011-cheat-sheet-4p5" \
+  "lpic1,linux"
+
+# --- front page and posts page -----------------------------------------------
+# Without show_on_front=page, WordPress shows the post roll at / instead of the
+# landing page. page_for_posts then gives the posts their own URL at /blog/.
+# The Blog page's own content is ignored by WordPress - the theme's home.html
+# template renders the post list instead.
 echo "== front page =="
 HOME_ID=$(wp post list --post_type=page --name=home --field=ID | head -n1)
+BLOG_ID=$(wp post list --post_type=page --name=blog --field=ID | head -n1)
 wp option update show_on_front page
 wp option update page_on_front "$HOME_ID"
-echo "  front page -> #$HOME_ID"
+wp option update page_for_posts "$BLOG_ID"
+echo "  front page -> #$HOME_ID, posts page -> #$BLOG_ID"
 
 # --- permalinks --------------------------------------------------------------
 # Pretty permalinks, so pages resolve at /about/ rather than /?page_id=7.
@@ -132,6 +207,7 @@ NAV_FILE=$(mktemp)
   printf '<!-- wp:navigation-link {"label":"Home","url":"/","kind":"custom","isTopLevelLink":true} /-->\n'
   printf '<!-- wp:navigation-link {"label":"About","url":"/about/","kind":"custom","isTopLevelLink":true} /-->\n'
   printf '<!-- wp:navigation-link {"label":"Projects","url":"/projects/","kind":"custom","isTopLevelLink":true} /-->\n'
+  printf '<!-- wp:navigation-link {"label":"Blog","url":"/blog/","kind":"custom","isTopLevelLink":true} /-->\n'
   printf '<!-- wp:navigation-link {"label":"Learn","url":"/learn/","kind":"custom","isTopLevelLink":true} /-->\n'
   printf '<!-- wp:navigation-link {"label":"Tech Camp","url":"/camp/","kind":"custom","isTopLevelLink":true} /-->\n'
   printf '<!-- wp:navigation-link {"label":"Resume","url":"/resume/","kind":"custom","isTopLevelLink":true} /-->\n'

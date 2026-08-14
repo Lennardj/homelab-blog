@@ -1,0 +1,124 @@
+<!-- wp:paragraph -->
+<p>When I started automating my homelab using Terraform + Proxmox, everything worked great… until it didn't.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">The problem</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>In a push-based deployment (via GitHub Actions), I hit a blocker: the Proxmox Terraform provider <strong>cannot delete a running VM or container.</strong></p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>That means:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list {"ordered":true} -->
+<ol class="wp-block-list">
+<!-- wp:list-item --><li>Terraform tries to destroy a resource</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Proxmox rejects it</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Pipeline fails ❌</li><!-- /wp:list-item -->
+</ol>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>So the fix is simple in theory: check if the VM is running → stop it → then delete it.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>But Terraform doesn't handle this natively — so I built a small workaround using <code>curl</code> and <code>jq</code>.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">What you need</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><a href="https://curl.se/windows/" target="_blank" rel="noreferrer noopener">curl</a> — for API calls</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><a href="https://jqlang.org/download/" target="_blank" rel="noreferrer noopener">jq</a> — for parsing JSON</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Proxmox API access</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>You'll need a <strong>Proxmox API token</strong>. The relevant docs:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><a href="https://pve.proxmox.com/wiki/Proxmox_VE_API#API_Tokens" target="_blank" rel="noreferrer noopener">Proxmox VE API — API tokens</a></li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><a href="https://pve.proxmox.com/pve-docs/api-viewer/index.html" target="_blank" rel="noreferrer noopener">API viewer — VM status endpoint</a></li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>Set your environment variables (Windows example):</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>setx TF_VAR_proxmox_api_url "https://YOUR-IP:8006/api2/json"
+setx TF_VAR_proxmox_api_token_id "user@pam!token"
+setx TF_VAR_proxmox_api_token_secret "your-secret"</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Quick environment variable reference (Windows)</h3>
+<!-- /wp:heading -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code># Temporary
+set MY_VAR=HelloWorld
+echo %MY_VAR%
+
+# Persistent
+setx MY_VAR "HelloWorld"
+
+# System-wide
+setx /m MY_VAR "HelloWorld"</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">The fix</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>We query the VM status using the Proxmox API:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>curl -sk -H "Authorization: PVEAPIToken=USER!TOKEN=SECRET" \
+  https://IP:8006/api2/json/nodes/NODE/qemu/VMID/status/current</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:paragraph -->
+<p>Then extract the state with <code>jq</code>:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>jq -r '.data.status'</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Putting it together</h2>
+<!-- /wp:heading -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>STATUS=$(curl -sk -H "$PVE_AUTH" \
+  "${PVE_API}/nodes/${PVE_NODE}/qemu/${VMID}/status/current" \
+  | jq -r '.data.status')
+
+if [ "$STATUS" = "running" ]; then
+  echo "Stopping VM $VMID..."
+  curl -sk -X POST -H "$PVE_AUTH" \
+    "${PVE_API}/nodes/${PVE_NODE}/qemu/${VMID}/status/stop"
+fi</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:paragraph -->
+<p>Now Terraform can safely destroy the VM after this runs.</p>
+<!-- /wp:paragraph -->

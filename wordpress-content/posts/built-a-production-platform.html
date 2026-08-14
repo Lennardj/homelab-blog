@@ -1,0 +1,240 @@
+<!-- wp:paragraph -->
+<p>I just wanted to write a blog.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>That's it. No scaling requirements. No users. No revenue. Just a place to write.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>So naturally, I built a 3-node Kubernetes cluster on bare metal, automated everything with Terraform and Ansible, added GitOps, monitoring, alerting, and exposed it to the internet using a zero-trust Cloudflare tunnel.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Completely normal.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Why over-engineer something so simple?</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Because the goal wasn't the blog. The goal was to learn how real platforms are built.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Not tutorials. Not "hello world" deployments. The actual systems that sit behind production environments. So I treated this like a real platform: fully automated, reproducible, observable, secure by design.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">The one command that does everything</h2>
+<!-- /wp:heading -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>docker compose up</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:paragraph -->
+<p>That single command:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Provisions infrastructure (Terraform → Proxmox)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Configures the cluster (Ansible → Kubernetes)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Deploys platform services (Ingress, monitoring, GitOps)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Deploys applications (WordPress + MariaDB)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Sets up public access (Cloudflare Tunnel)</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>About 25 minutes later… the entire platform is live. No manual steps. No SSH after bootstrap.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">How it's actually built</h2>
+<!-- /wp:heading -->
+
+<!-- wp:preformatted -->
+<pre class="wp-block-preformatted">Git → CI/CD → Terraform → VMs → Ansible → Kubernetes → Argo CD → Apps</pre>
+<!-- /wp:preformatted -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Infrastructure (Terraform)</h3>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Creates 3 VMs on Proxmox (1 control plane, 2 workers)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Configures Cloudflare tunnel + DNS</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Configuration (Ansible)</h3>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Bootstraps Kubernetes using kubeadm</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Installs core services (Ingress, storage, networking)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Deploys monitoring and applications</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">GitOps (Argo CD)</h3>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Watches the <code>kubernetes/</code> directory</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Automatically syncs changes to the cluster</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>After the initial build, I don't SSH into anything anymore. Everything is managed through Git.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">GitOps in action</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>This is my favourite part. I change a file in Git → push → and Argo CD updates the cluster automatically. No kubectl. No manual deploys. Just Git.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>That shift — from "run commands" to "declare desired state" — completely changes how you think about systems.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Zero trust (no open ports)</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Nothing in my home network is exposed directly. Instead, everything goes through a Cloudflare Tunnel:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:preformatted -->
+<pre class="wp-block-preformatted">User → Cloudflare Edge → Tunnel → Kubernetes Ingress → App</pre>
+<!-- /wp:preformatted -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>No port forwarding</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>No public IP exposure</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>HTTPS handled at the edge</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>It's simple, secure, and surprisingly powerful.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Observability (because things WILL break)</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>I added Prometheus for metrics, Grafana for dashboards, and AlertManager for email alerts. If a pod crashes, a node goes down, or memory spikes — I get notified.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Because a platform you can't observe… is a platform you don't understand.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">What went wrong (the important part)</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>This didn't work the first time. Some of the issues I hit:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Terraform not returning VM IPs (guest agent problems)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Ansible running before infrastructure was ready</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Kubernetes probes killing WordPress before it stabilised</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Infinite HTTPS redirect loops behind Cloudflare</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>PVC-related deployment deadlocks</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>Most of these came down to one thing: I assumed things would be ready… when they weren't.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Biggest lesson</h2>
+<!-- /wp:heading -->
+
+<!-- wp:quote -->
+<blockquote class="wp-block-quote"><!-- wp:paragraph --><p>Stop designing systems that depend on timing. Start designing systems that converge.</p><!-- /wp:paragraph --></blockquote>
+<!-- /wp:quote -->
+
+<!-- wp:paragraph -->
+<p>Instead of "wait 30 seconds and hope", do: retry until ready, check actual state, design for failure. That shift alone made everything more reliable.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Reproducibility (this is the real win)</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>The entire platform can be destroyed, rebuilt, and moved using the same codebase. That means no snowflake servers, no hidden config, and no "it only works on my machine".</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">What this project actually demonstrates</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>This isn't about WordPress. It demonstrates:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Infrastructure as Code (Terraform)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Configuration as Code (Ansible)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>GitOps (Argo CD)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Zero Trust Networking (Cloudflare)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Observability-first design</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>In other words: how modern platforms are actually built.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">What's next</h2>
+<!-- /wp:heading -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li>Move this to a Talos-based cluster</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Add multi-environment support (dev/staging/prod)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Implement proper secrets management (SOPS or Vault)</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li>Explore multi-cluster deployments</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Final thoughts</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Yes — this is overkill for a blog. But that's kind of the point. If you can build something like this for a simple project… you can build it for something that actually matters.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>If you want to check it out: <a href="https://github.com/Lennardj/homelab-blog" target="_blank" rel="noreferrer noopener">github.com/Lennardj/homelab-blog</a></p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>I'm Lennard — currently transitioning into DevOps / Platform Engineering. If you're on the same journey, feel free to connect.</p>
+<!-- /wp:paragraph -->
