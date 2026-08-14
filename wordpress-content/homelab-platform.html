@@ -1,5 +1,17 @@
 <!-- wp:paragraph {"fontSize":"large"} -->
-<p class="has-large-font-size">The platform serving this page is the project. Everything below is running right now, on my own hardware.</p>
+<p class="has-large-font-size">I wanted somewhere to write. I built a production platform instead.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>No scaling requirements. No users. No revenue. So naturally I built a three-node Kubernetes cluster on bare metal, automated every layer of it, and exposed it to the internet through a zero-trust tunnel with no open ports.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p><strong>The blog was never the point.</strong> The point was learning how real platforms are actually built — not tutorials, not "hello world" deployments, but the systems that sit behind production environments. So I treated a personal site like one: fully automated, reproducible, observable, and secure by design.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>The page you are reading is served by it.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:separator -->
@@ -7,37 +19,46 @@
 <!-- /wp:separator -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Self-hosted Kubernetes platform</h2>
+<h2 class="wp-block-heading">One command</h2>
 <!-- /wp:heading -->
 
-<!-- wp:paragraph -->
-<p>A complete infrastructure pipeline that takes a bare Proxmox host to a running, monitored, TLS-terminated Kubernetes cluster with no manual steps in between.</p>
-<!-- /wp:paragraph -->
+<!-- wp:code -->
+<pre class="wp-block-code"><code>docker compose up</code></pre>
+<!-- /wp:code -->
 
 <!-- wp:paragraph -->
-<p><a href="https://github.com/Lennardj/homelab-blog" target="_blank" rel="noreferrer noopener"><strong>Source on GitHub &rarr;</strong></a></p>
+<p>That provisions the infrastructure, configures the cluster, deploys the platform services and applications, and sets up public access. About 25 minutes later the whole platform is live. No manual steps, and no SSH after bootstrap.</p>
 <!-- /wp:paragraph -->
-
-<!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">The pipeline</h3>
-<!-- /wp:heading -->
 
 <!-- wp:preformatted -->
-<pre class="wp-block-preformatted">Terraform  &rarr;  provisions VMs on Proxmox, DNS + tunnel on Cloudflare
-Ansible    &rarr;  bootstraps Kubernetes, installs platform services
-Argo CD    &rarr;  reconciles workloads from Git, continuously
-Cloudflare &rarr;  publishes the result with no inbound ports open</pre>
+<pre class="wp-block-preformatted">Git → CI/CD → Terraform → VMs → Ansible → Kubernetes → Argo CD → Apps</pre>
 <!-- /wp:preformatted -->
 
-<!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">What runs on it</h3>
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><strong>Terraform</strong> creates the VMs on Proxmox and configures Cloudflare DNS and the tunnel.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Ansible</strong> bootstraps Kubernetes with kubeadm and installs the platform services in dependency order.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Argo CD</strong> takes over from there, reconciling workloads against Git continuously.</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:paragraph -->
+<p>Both Terraform and Ansible run in containers, so the build executes identically on a laptop and on the CI runner. No version drift, no host prerequisites beyond Docker.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">What runs on it</h2>
 <!-- /wp:heading -->
 
 <!-- wp:list -->
 <ul class="wp-block-list">
-<!-- wp:list-item --><li><strong>This website</strong> — WordPress with MariaDB, backed by persistent volumes and nightly encrypted backups.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>Grafana &amp; Prometheus</strong> — cluster and node metrics, with alerting to email.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>Argo CD</strong> — the GitOps control plane, itself deployed by the pipeline that it then takes over from.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>This website</strong> — WordPress and MariaDB on persistent storage, with nightly encrypted backups.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Prometheus, Grafana and Alertmanager</strong> — cluster and node metrics, with alerts by email.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Argo CD</strong> — the GitOps control plane, itself deployed by the pipeline it then takes over from.</li><!-- /wp:list-item -->
 </ul>
 <!-- /wp:list -->
 
@@ -46,39 +67,15 @@ Cloudflare &rarr;  publishes the result with no inbound ports open</pre>
 <!-- /wp:separator -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Engineering decisions worth explaining</h2>
-<!-- /wp:heading -->
-
-<!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">DNS-01 certificates, not HTTP-01</h3>
+<h2 class="wp-block-heading">GitOps changed how I think about it</h2>
 <!-- /wp:heading -->
 
 <!-- wp:paragraph -->
-<p>Because traffic arrives through a Cloudflare Tunnel, there is no inbound HTTP path for Let's Encrypt to validate against. cert-manager proves domain ownership by writing a TXT record through the Cloudflare API instead. The constraint dictated the design.</p>
+<p>I change a file, push, and Argo CD updates the cluster. No kubectl, no manual deploys. That shift — from <em>running commands</em> to <em>declaring desired state</em> — is the single biggest change in how I approach systems.</p>
 <!-- /wp:paragraph -->
 
-<!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">A self-hosted CI runner</h3>
-<!-- /wp:heading -->
-
 <!-- wp:paragraph -->
-<p>GitHub-hosted runners are cloud VMs with no route to a private LAN. They cannot reach the Proxmox API or the cluster nodes. A self-hosted runner solves that and keeps every credential off GitHub entirely.</p>
-<!-- /wp:paragraph -->
-
-<!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">Least privilege at the network layer</h3>
-<!-- /wp:heading -->
-
-<!-- wp:paragraph -->
-<p>A Kubernetes NetworkPolicy restricts the database to accepting connections only from the specific workloads that need it — the web application, the backup job, and the administrative CLI. Every other pod in the cluster is denied, including anything an attacker might land in.</p>
-<!-- /wp:paragraph -->
-
-<!-- wp:heading {"level":3} -->
-<h3 class="wp-block-heading">Backups that have actually been restored</h3>
-<!-- /wp:heading -->
-
-<!-- wp:paragraph -->
-<p>Nightly encrypted snapshots with restic to off-cluster storage, with client-side encryption so the backup host never holds readable data. The restore has been performed and verified by comparing row counts against the live database — not merely documented as a procedure.</p>
+<p>It also has a boundary that took a failure to understand properly. GitOps reconciles <strong>declarations, not data</strong>. Git guarantees the platform can be rebuilt; it guarantees nothing about what is running on it. That is why the first thing I built on this platform was backups — before there was any data worth losing.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:separator -->
@@ -86,17 +83,52 @@ Cloudflare &rarr;  publishes the result with no inbound ports open</pre>
 <!-- /wp:separator -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Failures, written up properly</h2>
+<h2 class="wp-block-heading">What went wrong</h2>
 <!-- /wp:heading -->
 
 <!-- wp:paragraph -->
-<p>Every significant failure on this platform is documented with the exact symptom, the diagnostic commands, the hypotheses that turned out to be wrong, and the root cause. A sample:</p>
+<p>It did not work first time. Terraform not returning VM IPs. Ansible running before infrastructure was ready. Probes killing WordPress before it stabilised. Infinite HTTPS redirect loops behind Cloudflare. Storage deadlocks during a routine update.</p>
 <!-- /wp:paragraph -->
 
-<!-- wp:list -->
-<ul class="wp-block-list">
-<!-- wp:list-item --><li><strong>An infinite redirect loop on the admin panel.</strong> The reverse proxy was discarding the header the application relied on to detect HTTPS — by design, since forwarded headers are client-controlled and must not be trusted by default.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>A database that refused to start during a routine update.</strong> ReadWriteOnce restricts a volume to one <em>node</em>, not one pod, so a rolling update started a second database process against live data files. The storage engine's file lock was the only thing preventing corruption.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>A monitoring stack that vanished.</strong> Argo CD rebuilt the namespace and ingress but could not rebuild the Helm release, because Helm-managed resources are rendered at install time and never stored in Git. GitOps protects only what is actually in Git.</li><!-- /wp:list-item -->
-</ul>
-<!-- /wp:list -->
+<!-- wp:paragraph -->
+<p>Nearly all of it came down to one thing: <strong>I assumed things would be ready when they were not.</strong></p>
+<!-- /wp:paragraph -->
+
+<!-- wp:quote -->
+<blockquote class="wp-block-quote"><!-- wp:paragraph --><p>Stop designing systems that depend on timing. Start designing systems that converge.</p><!-- /wp:paragraph --></blockquote>
+<!-- /wp:quote -->
+
+<!-- wp:paragraph -->
+<p>Instead of "wait 30 seconds and hope": retry until ready, check actual state, design for failure. That shift alone made everything more reliable.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Every significant failure is written up in full — symptom, diagnostic commands, the hypotheses that were wrong, and the root cause. The detailed engineering analysis lives on the <a href="/projects/kubernetes/">Kubernetes Platform</a> page.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">The real win: reproducibility</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>The entire platform can be destroyed, rebuilt and moved from the same codebase. No snowflake servers, no hidden configuration, no "it only works on my machine".</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Yes, this is overkill for a blog. That is rather the point — if you can build it for something that does not matter, you can build it for something that does.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:buttons -->
+<div class="wp-block-buttons">
+<!-- wp:button -->
+<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/projects/kubernetes/">The Kubernetes engineering →</a></div>
+<!-- /wp:button -->
+<!-- wp:button -->
+<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/writing/blog/">Read the write-ups</a></div>
+<!-- /wp:button -->
+</div>
+<!-- /wp:buttons -->

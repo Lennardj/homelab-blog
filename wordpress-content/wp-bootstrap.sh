@@ -127,7 +127,7 @@ upsert_page now      "Now"      now.html      about
 upsert_page projects "Projects" projects.html
 upsert_page homelab-platform            "Homelab Platform"              homelab-platform.html            projects
 upsert_page azure-school-infrastructure "Azure School Infrastructure"   azure-school-infrastructure.html projects
-upsert_page kubernetes                  "Kubernetes"                    kubernetes.html                  projects
+upsert_page kubernetes                  "Kubernetes Platform"           kubernetes.html                  projects
 upsert_page infrastructure-automation   "Infrastructure Automation"     infrastructure-automation.html   projects
 upsert_page education-digital-technology "Education & Digital Technology" education-digital-technology.html projects
 
@@ -268,7 +268,7 @@ NAV_FILE=$(mktemp)
   printf '<!-- wp:navigation-submenu {"label":"Projects","url":"/projects/","kind":"custom","isTopLevelItem":true} -->\n'
   printf '  <!-- wp:navigation-link {"label":"Homelab Platform","url":"/projects/homelab-platform/","kind":"custom"} /-->\n'
   printf '  <!-- wp:navigation-link {"label":"Azure School Infrastructure","url":"/projects/azure-school-infrastructure/","kind":"custom"} /-->\n'
-  printf '  <!-- wp:navigation-link {"label":"Kubernetes","url":"/projects/kubernetes/","kind":"custom"} /-->\n'
+  printf '  <!-- wp:navigation-link {"label":"Kubernetes Platform","url":"/projects/kubernetes/","kind":"custom"} /-->\n'
   printf '  <!-- wp:navigation-link {"label":"Infrastructure Automation","url":"/projects/infrastructure-automation/","kind":"custom"} /-->\n'
   printf '  <!-- wp:navigation-link {"label":"Education &amp; Digital Technology","url":"/projects/education-digital-technology/","kind":"custom"} /-->\n'
   printf '<!-- /wp:navigation-submenu -->\n'

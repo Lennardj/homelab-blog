@@ -1,77 +1,178 @@
 <!-- wp:paragraph {"fontSize":"large"} -->
-<p class="has-large-font-size">Building and operating Kubernetes clusters from bare metal — not from a managed control plane.</p>
+<p class="has-large-font-size">A three-node cluster built with kubeadm on bare metal — and the engineering decisions, trade-offs and failures behind it.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:paragraph -->
-<p>Managed Kubernetes hides the parts that break. Building a cluster with kubeadm means owning the CNI, the load balancer, storage provisioning, certificate issuance and ingress yourself — and understanding each when it fails.</p>
+<p>This is the technical companion to the <a href="/projects/homelab-platform/">Homelab Platform</a>. That page covers what was built and why. This one covers how it was engineered, what it cost, and where it is still weak.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Why kubeadm, not managed Kubernetes</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>A managed control plane hides exactly the parts that break. Building with kubeadm means owning the container network, the load balancer, storage provisioning, certificate issuance and ingress yourself — and understanding each one when it fails at 11pm.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>The cluster is one control plane and two workers, bootstrapped entirely from automation rather than by hand, so it can be destroyed and rebuilt from the same code.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Cluster architecture</h2>
+<h2 class="wp-block-heading">Networking on bare metal</h2>
 <!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>There is no cloud provider here to hand out an external IP, which changes what you have to build.</p>
+<!-- /wp:paragraph -->
 
 <!-- wp:list -->
 <ul class="wp-block-list">
-<!-- wp:list-item --><li><strong>kubeadm</strong> — three nodes, one control plane and two workers, bootstrapped from automation rather than by hand.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>Calico</strong> — CNI with NetworkPolicy actually enforced, not merely declared.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>MetalLB</strong> — load balancing on bare metal, where no cloud provider exists to hand out an external IP.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>ingress-nginx</strong> — HTTP routing and TLS termination for every service.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>local-path</strong> — dynamic persistent volume provisioning, with its trade-offs understood and documented.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Calico</strong> — CNI with NetworkPolicy genuinely enforced. Policies without a compatible CNI are silently ignored, which is a dangerous way to think you are protected.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>MetalLB</strong> — assigns external IPs from a LAN pool so <code>type: LoadBalancer</code> means something outside a cloud.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>ingress-nginx</strong> — HTTP routing and TLS termination for every service behind one entry point.</li><!-- /wp:list-item -->
 </ul>
 <!-- /wp:list -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Networking and security</h2>
+<h2 class="wp-block-heading">Certificates when there is no inbound path</h2>
 <!-- /wp:heading -->
 
 <!-- wp:paragraph -->
-<p>The database in this cluster accepts connections from exactly three workloads — the web application, the backup job, and the administrative CLI. Everything else is denied by default, including anything an attacker might land in.</p>
+<p>All traffic arrives through a Cloudflare Tunnel, so there is no inbound HTTP route for Let's Encrypt's HTTP-01 challenge to validate against. It would fail every time.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:paragraph -->
-<p>That default-deny posture has a sharp edge worth knowing: a missing NetworkPolicy entry does not produce a connection error. The packets are dropped silently and the client hangs until it times out, so the symptom surfaces nowhere near the cause. Every new workload needs its policy considered up front.</p>
+<p>cert-manager proves domain ownership over <strong>DNS-01</strong> instead, writing a TXT record through the Cloudflare API. No inbound HTTP required. The constraint dictated the design rather than the other way round — which is usually the sign you have understood the constraint.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Storage, and what it really guarantees</h2>
+<h2 class="wp-block-heading">Default-deny networking, and how it fails</h2>
 <!-- /wp:heading -->
 
 <!-- wp:paragraph -->
-<p>ReadWriteOnce does not mean "one pod" — it means <strong>one node</strong>. Multiple pods scheduled to that node can all mount the volume simultaneously.</p>
+<p>The database accepts connections from exactly three workloads: the web application, the backup job, and the administrative CLI. Every other pod in the cluster is denied, including anything an attacker manages to land in.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:paragraph -->
-<p>I learned this the direct way: a routine memory increase triggered a rolling update on a database Deployment, which cheerfully started a second database process against the live data directory. The storage engine's file lock was the only thing standing between that and corruption.</p>
+<p>The operational hazard is worth stating precisely, because it has caught me twice: <strong>a missing policy entry does not produce a connection error.</strong> Calico drops the packets and the client hangs until it times out. There is no refusal, no log line at the client, and the symptom surfaces nowhere near the cause.</p>
 <!-- /wp:paragraph -->
 
-<!-- wp:quote -->
-<blockquote class="wp-block-quote"><!-- wp:paragraph --><p>InnoDB: Unable to lock ./ibdata1 error: 11</p><!-- /wp:paragraph --></blockquote>
-<!-- /wp:quote -->
-
 <!-- wp:paragraph -->
-<p>The fix is one line — <code>strategy: Recreate</code> — but the lesson is bigger: single-writer workloads on ReadWriteOnce storage need explicit protection, and a latent misconfiguration only surfaces on the first change that exercises it.</p>
+<p>The rule that came out of it: any new workload that talks to a protected service needs its policy considered before it is deployed, not after it mysteriously hangs.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Certificates without an inbound path</h2>
+<h2 class="wp-block-heading">Storage, and what ReadWriteOnce actually guarantees</h2>
 <!-- /wp:heading -->
 
 <!-- wp:paragraph -->
-<p>Because all traffic arrives through a Cloudflare Tunnel, there is no inbound HTTP route for Let's Encrypt's HTTP-01 challenge to validate. cert-manager proves domain ownership over DNS-01 instead, writing a TXT record via the Cloudflare API. The constraint dictated the design rather than the other way round.</p>
+<p>This is the most commonly misread part of the Kubernetes storage model, and it nearly cost me a database.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p><strong>ReadWriteOnce does not mean "one pod". It means one <em>node</em>.</strong> Multiple pods scheduled onto that same node can all mount the volume simultaneously.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>A routine memory increase triggered a rolling update on the database Deployment. The new pod did not fail to schedule — it scheduled successfully onto the same node, mounted the live data directory, and started a second database process against files already open by the running instance.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code -->
+<pre class="wp-block-code"><code>[ERROR] InnoDB: Unable to lock ./ibdata1 error: 11
+[Note]  InnoDB: Check that you do not already have another mariadbd process
+        using the same InnoDB data or log files.
+[ERROR] Failed to initialize plugins.
+[ERROR] Aborting</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:paragraph -->
+<p>The storage engine's file lock was the only thing standing between that and corruption. Kubernetes would happily have run two database processes against one data directory; the database refused. <strong>Knowing which layer is actually protecting your data matters when reasoning about what "it didn't break" proves.</strong></p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>The fix is one line — <code>strategy: Recreate</code> — but the lesson is larger. The wrong strategy had been sitting in the manifest since day one, harmless, because nothing had ever triggered a pod replacement. Configuration that is never exercised is untested configuration, and the day it is exercised is rarely convenient.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>The correct primitive for a single-writer workload is a StatefulSet, which provides ordered, one-at-a-time replacement by design rather than by remembering to set a field.</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:heading -->
-<h2 class="wp-block-heading">Operations</h2>
+<h2 class="wp-block-heading">Where GitOps stops</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>The monitoring stack disappeared from its namespace. Argo CD faithfully rebuilt the namespace and the ingress — both declared in Git — and could rebuild nothing else, because Helm-managed resources are rendered at install time and never stored in Git. The ingress pointed at a service that no longer existed, and every request returned 503.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>This is a real blind spot in hybrid GitOps and Helm setups, and the mitigations are all trade-offs: let Argo CD own the Helm install, pre-render charts into committed manifests, or accept that Helm-managed applications need a separate recovery path.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>The general principle applies well beyond Helm: <strong>GitOps protects what is in Git, and nothing else.</strong> Application data, uploaded media and database contents are outside that boundary and need their own answer.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Trusting a reverse proxy</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>The admin panel returned a 302 pointing at itself — an unconditional redirect loop — while the homepage served fine. Same host, same ingress, same pod.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Cloudflare terminates TLS at the edge and the tunnel forwards plain HTTP to ingress-nginx, so the application saw an HTTP request for a site configured as HTTPS and redirected — forever. The obvious fix, trusting the <code>X-Forwarded-Proto</code> header, did not work: <strong>ingress-nginx discards inbound forwarded headers by default</strong> and regenerates them from the actual connection.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>That default is a security measure, not a bug. <code>X-Forwarded-*</code> headers are client-controlled and must not be trusted unless a proxy you control sits in front. Writing code that depends on a header without verifying the proxy chain forwards it is an assumption, not a design.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Fixed at the application layer rather than by enabling forwarded headers cluster-wide — a one-line change beats one that silently alters header handling for every other service in the cluster. <strong>Match the fix's blast radius to the problem's.</strong></p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Day-2 operations</h2>
 <!-- /wp:heading -->
 
 <!-- wp:list -->
 <ul class="wp-block-list">
-<!-- wp:list-item --><li><strong>Monitoring</strong> — Prometheus, Grafana and Alertmanager via kube-prometheus-stack, tuned down after learning first-hand what alert fatigue does to your attention.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>Backups</strong> — encrypted, off-cluster, scheduled, and with a restore that has actually been performed and verified against live row counts.</li><!-- /wp:list-item -->
-<!-- wp:list-item --><li><strong>Resource management</strong> — limits sized against measured usage, not guessed.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Resource sizing from measurement.</strong> Limits were raised against observed usage and real node headroom, not guesswork — and the application-level limits (PHP's own memory ceiling) had to move with the container limits, or the extra headroom would never have been used.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Monitoring that is actually read.</strong> Prometheus, Grafana and Alertmanager, tuned down after learning first-hand what alert fatigue does to your attention. An alert nobody reads is worse than no alert.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Backups with a verified restore.</strong> Nightly encrypted snapshots to off-cluster storage, client-side encrypted so the backup host never holds readable data. The restore has been performed and checked against live row counts — and the drill is designed never to write to the live database, so it is safe to repeat.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Probes matched to reality.</strong> TCP rather than HTTP readiness for an application that returns 500 during first-run setup, because an HTTP probe would block it from ever becoming ready.</li><!-- /wp:list-item -->
+</ul>
+<!-- /wp:list -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Known limitations</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Stating these matters more than hiding them. Each is a deliberate trade-off with a known cost:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:list -->
+<ul class="wp-block-list">
+<!-- wp:list-item --><li><strong>Single control plane.</strong> No etcd quorum and no HA. Losing that node loses the cluster's API until it is rebuilt. Acceptable for this workload; unacceptable for anything with an availability target.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>local-path enforces no quota.</strong> The volume request is decorative — it binds to a directory on the node's disk with no limit, so a runaway upload can fill the node's root filesystem and take the node with it.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Node-local storage, no replication.</strong> A disk failure on the wrong node loses that volume. Backups cover the data; the outage is still real.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Backups are off-cluster but not off-site.</strong> They land on the host running the VMs, which covers node failure and accidental deletion but not the loss of that machine.</li><!-- /wp:list-item -->
+<!-- wp:list-item --><li><strong>Secrets live in environment files.</strong> Fine for one operator; it does not scale to a team or an audit trail. Migrating to a secrets manager with an external secrets operator is the intended path.</li><!-- /wp:list-item -->
 </ul>
 <!-- /wp:list -->
 
 <!-- wp:paragraph -->
-<p>The failures are documented in detail — symptom, diagnostics, wrong turns and root cause — on the <a href="/projects/homelab-platform/">Homelab Platform</a> page.</p>
+<p>Full write-ups of every failure — symptom, diagnostic commands, wrong turns and root cause — are published in <a href="/writing/lab-notes/">Lab Notes</a>. The source for the platform is <a href="https://github.com/Lennardj/homelab-blog" target="_blank" rel="noreferrer noopener">on GitHub</a>.</p>
 <!-- /wp:paragraph -->
