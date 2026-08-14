@@ -424,6 +424,24 @@ WordPress's default `Hello world!` post and `Sample Page` were deleted.
 
 **Content still needed from the owner** (deliberately left as short honest stubs rather than invented): Azure School Infrastructure, Education & Digital Technology, and the biographical half of Teaching.
 
+### Status badge
+
+Unfinished work is marked with a reusable badge rather than a sentence buried in prose, so a thin page reads as deliberately in progress instead of broken:
+
+```html
+<span class="lj-badge lj-badge--progress">In Progress</span>
+```
+
+Styled in `wordpress-theme/style.css`. **Amber, not the accent green** — green signals "done" everywhere else on the site, so reusing it here would undercut the label's meaning. Use `p.lj-badge-row` when the badge sits alone directly under a page title, which collapses the surrounding margin.
+
+Currently applied to: Azure School Infrastructure and Education & Digital Technology, both on the page itself and on the Projects index.
+
+### Project page split
+
+`/projects/homelab-platform/` carries the **narrative** — why it was built, the one-command pipeline, what went wrong, reproducibility. `/projects/kubernetes/` ("Kubernetes Platform") carries the **engineering** — kubeadm vs managed, bare-metal networking, DNS-01 under tunnel constraints, RWO semantics and the `ibdata1` near-miss, where GitOps stops, reverse-proxy header trust, day-2 operations, and a candid *Known limitations* section.
+
+The limitations section is deliberate: naming single control plane, no storage quota, node-local storage and off-cluster-but-not-off-site backups is what distinguishes platform design from tool familiarity. Every claim traces to `homelab_forensic_manual.md` or this file.
+
 ### Blog and republished posts
 
 Three articles originally published on dev.to are mirrored here, stored in `wordpress-content/posts/` and upserted by slug like pages.
