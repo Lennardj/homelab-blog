@@ -387,6 +387,16 @@ Three articles originally published on dev.to are mirrored here, stored in `word
 
 **Excerpts are set explicitly** in `wp-bootstrap.sh` via `--post_excerpt`. Without them WordPress auto-generates one by truncating the opening lines, which for these posts produced weak card summaries.
 
+### Footer override
+
+`twentytwentyfive` ships a **demo footer** containing placeholder navigation — `Blog · About · FAQs · Authors · Events · Shop · Patterns · Themes`, every one pointing at `href="#"` — plus the theme name and a "Designed with WordPress" credit. Eight dead links reading "Shop" and "Patterns" on a site aimed at employers is worse than no footer at all.
+
+`wordpress-theme/parts/footer.html` replaces it: site title and tagline, real site links, external profiles, a self-hosting credit linking to the source repo, and a copyright line.
+
+**The year comes from a shortcode** (`[lj_footer_credit]` in `functions.php`). WordPress has no core block that renders the current year, and hardcoding it guarantees a footer that silently goes stale every January. It is called through a `wp:shortcode` block because **plain paragraph blocks in a template part do not run shortcodes**.
+
+> ⚠️ **Do not put explanatory HTML comments in block templates.** Anything that is not a `<!-- wp:… -->` block delimiter is passed straight through into the rendered page. A comment added here describing the removed placeholder links leaked the words "FAQs, Authors, Events, Shop, Patterns, Themes" into the live page source — reintroducing, as visible markup, exactly the strings the change removed. Explanations belong in this file; `.html` template parts should contain only block markup.
+
 **Front page vs posts page:** `show_on_front=page` with `page_on_front` → Home and `page_for_posts` → Blog. The Blog page's own content is ignored — WordPress renders the post list through the theme's template instead.
 
 **`post_date` is set to the original publication date**, so the archive reads in true chronological order rather than showing three articles all published the day they were imported.
