@@ -373,7 +373,48 @@ The script is **idempotent** — pages are upserted by slug, so re-running updat
 
 **Scope boundary, stated explicitly:** this makes the site *skeleton* reproducible from Git — which pages exist, their content, the menu, the title. It does **not** make WordPress reproducible. Posts written later, uploaded media, plugin settings and user accounts live in the database and PVC and remain a restore-from-backup concern.
 
-Pages: `home` (front page), `blog` (posts index), `about`, `projects`, `now`, `learn`, `camp`, `resume`. The last three are placeholders for Phases 4–9. WordPress's default `Hello world!` post and `Sample Page` were deleted.
+### Site structure (2026-08-14)
+
+```
+Home
+About                    /about/
+  About Me               /about/about-me/
+  Now                    /about/now/
+Projects                 /projects/
+  Homelab Platform       /projects/homelab-platform/
+  Azure School Infra.    /projects/azure-school-infrastructure/
+  Kubernetes             /projects/kubernetes/
+  Infrastructure Autom.  /projects/infrastructure-automation/
+  Education & Digital T. /projects/education-digital-technology/
+Writing                  /writing/
+  Blog                   /writing/blog/          <- page_for_posts
+  Guides                 /writing/guides/
+  Lab Notes              /writing/lab-notes/
+Education                /education/
+  Teaching               /education/teaching/
+  Tech Camp              /education/tech-camp/
+  Resources              /education/resources/
+Resume                   /resume/
+```
+
+Hierarchy comes from `post_parent`, set by the fourth argument to `upsert_page`. **Parents must be created before their children**, which is why the ordering in the script is not alphabetical.
+
+Navigation uses `wp:navigation-submenu` rather than `wp:navigation-link` for section parents, so each section landing page stays clickable instead of being a dead label that only opens a dropdown.
+
+**Retired pages and redirects.** `learn` and `camp` were deleted; `now` and `blog` moved under parents, which changes their URLs. WordPress does **not** redirect a page whose parent changed — the old path simply 404s. `functions.php` holds a 301 map:
+
+| Old | New |
+|---|---|
+| `/now/` | `/about/now/` |
+| `/blog/` | `/writing/blog/` |
+| `/learn/` | `/education/resources/` |
+| `/camp/` | `/education/tech-camp/` |
+
+Kept in code rather than a redirect plugin so the mapping is version-controlled alongside the change that caused it. All four verified returning 301.
+
+WordPress's default `Hello world!` post and `Sample Page` were deleted.
+
+**Content still needed from the owner** (deliberately left as short honest stubs rather than invented): Azure School Infrastructure, Education & Digital Technology, and the biographical half of Teaching.
 
 ### Blog and republished posts
 
