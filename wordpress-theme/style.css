@@ -237,37 +237,104 @@ a:not(.wp-block-button__link):hover {
   }
 }
 
-/* The open overlay. Core gives it no colours of its own, so without this it
-   inherits whatever is behind it - on a dark site that reads as broken. */
+/* ---------------------------------------------------------------------
+   The open overlay.
+
+   Core gives the overlay no colours of its own, so on a dark site it inherits
+   whatever sits behind it. It also reuses the HEADER's justification setting
+   (--navigation-layout-justification-setting) inside the overlay - our header
+   nav is right-justified, so every item gets pushed to the right edge - and it
+   leaves submenus carrying the styling intended for a floating desktop
+   dropdown. Together that is what made the menu look unfinished.
+
+   Everything below forces one consistent left-aligned list.
+   --------------------------------------------------------------------- */
 .wp-block-navigation__responsive-container.is-menu-open {
   background-color: var(--wp--preset--color--base) !important;
-  padding: 4rem 1.5rem 2rem;
+  padding: 5rem 1.75rem 2.5rem;
+}
+
+/* Override the inherited right-justification. */
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__container,
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__responsive-container-content {
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  width: 100%;
+  gap: 0;
+}
+
+/* One row per item, full width, so the whole row is a tap target rather than
+   just the text. */
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation-item {
+  width: 100%;
+  align-items: flex-start;
 }
 
 .wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation-item__content {
+  display: block;
+  width: 100%;
   color: var(--wp--preset--color--contrast);
+  font-family: var(--wp--preset--font-family--mono);
   font-size: 1.05rem;
-  padding: 0.35rem 0;
+  text-align: left;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--wp--preset--color--accent-4);
 }
 
 .wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation-item__content:hover {
   color: var(--wp--preset--color--accent-1);
 }
 
-/* Submenu items sit under their parent in the overlay - indent and dim them so
-   the hierarchy is still readable once everything is expanded. */
+/* Submenus: strip the floating-dropdown treatment and render them as an
+   indented continuation of the same list. */
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__submenu-container {
+  position: static !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
 .wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__submenu-container .wp-block-navigation-item__content {
   color: var(--wp--preset--color--accent-2);
   font-size: 0.92rem;
-  padding-left: 1rem;
+  padding-left: 1.1rem;
+  border-bottom: none;
+  position: relative;
 }
 
+/* A prompt marker instead of a bullet, matching the h2 treatment elsewhere. */
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__submenu-container .wp-block-navigation-item__content::before {
+  content: "└ ";
+  color: var(--wp--preset--color--accent-5);
+  position: absolute;
+  left: 0;
+}
+
+/* The parent row of a submenu keeps its divider; the last child restores the
+   spacing the removed borders would otherwise lose. */
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__submenu-container > li:last-child {
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--wp--preset--color--accent-4);
+}
+
+/* Hide the submenu chevron - everything is expanded in the overlay, so an arrow
+   suggesting "click to open" is misleading. */
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__submenu-icon {
+  display: none;
+}
+
+/* Open and close buttons. */
+.wp-block-navigation__responsive-container-open,
 .wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__responsive-container-close {
   color: var(--wp--preset--color--accent-1);
 }
 
-.wp-block-navigation__responsive-container-open {
-  color: var(--wp--preset--color--accent-1);
+.wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__responsive-container-close {
+  padding: 1.5rem;
 }
 
 /* ---------------------------------------------------------------------
