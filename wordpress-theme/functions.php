@@ -48,6 +48,141 @@ add_action(
 );
 
 /**
+ * [lj_camp_classes] - tech camp classes with a live capacity indicator.
+ *
+ * WooCommerce stock IS the capacity cap: manage_stock + backorders=no means a
+ * class cannot be oversold, and WooCommerce resolves the race when two parents
+ * buy the last place at the same moment. This shortcode only renders that state
+ * - it never decides it.
+ *
+ * WooCommerce tracks REMAINING stock, not the original size, so each product
+ * carries a _lj_capacity meta written once at creation. taken = capacity - stock.
+ *
+ * When a class is full the booking button is REPLACED by an email link rather
+ * than disabled, so a parent has somewhere to go instead of a dead end.
+ *
+ * Usage: [lj_camp_classes]  or  [lj_camp_classes skus="camp-a-morning,camp-b-afternoon"]
+ */
+add_shortcode(
+    'lj_camp_classes',
+    static function ( $atts ): string {
+        if ( ! function_exists( 'wc_get_product' ) ) {
+            return '';
+        }
+
+        $atts = shortcode_atts(
+            array(
+                'skus'  => 'camp-a-morning,camp-b-afternoon,camp-c-morning',
+                'email' => get_option( 'admin_email' ),
+            ),
+            $atts,
+            'lj_camp_classes'
+        );
+
+        $skus = array_filter( array_map( 'trim', explode( ',', (string) $atts['skus'] ) ) );
+        if ( empty( $skus ) ) {
+            return '';
+        }
+
+        $rows = array();
+
+        foreach ( $skus as $sku ) {
+            $product_id = wc_get_product_id_by_sku( $sku );
+            if ( ! $product_id ) {
+                continue;
+            }
+
+            $product = wc_get_product( $product_id );
+            if ( ! $product instanceof WC_Product ) {
+                continue;
+            }
+
+            // Draft products are visible to logged-in editors only, so the page
+            // is previewable before the schedule is public.
+            if ( 'publish' !== $product->get_status() && ! current_user_can( 'edit_posts' ) ) {
+                continue;
+            }
+
+            $capacity  = (int) get_post_meta( $product_id, '_lj_capacity', true );
+            $remaining = (int) $product->get_stock_quantity();
+
+            if ( $capacity <= 0 ) {
+                $capacity = max( $remaining, 1 );
+            }
+
+            $remaining = max( 0, min( $remaining, $capacity ) );
+            $taken     = $capacity - $remaining;
+            $percent   = (int) round( ( $taken / $capacity ) * 100 );
+
+            $is_full       = ( 0 === $remaining ) || ! $product->is_in_stock();
+            $is_bookable   = $product->is_purchasable() && ! $is_full;
+            $is_unschedule = ! $product->is_purchasable();
+
+            if ( $is_full ) {
+                $state = 'is-full';
+            } elseif ( $percent >= 75 ) {
+                $state = 'is-filling';
+            } else {
+                $state = 'is-open';
+            }
+
+            $subject = rawurlencode( 'Tech Camp waitlist - ' . $product->get_name() );
+            $mailto  = 'mailto:' . antispambot( (string) $atts['email'] ) . '?subject=' . $subject;
+
+            ob_start();
+            ?>
+            <div class="lj-class <?php echo esc_attr( $state ); ?>">
+                <div class="lj-class__head">
+                    <h3 class="lj-class__name"><?php echo esc_html( $product->get_name() ); ?></h3>
+                    <?php if ( $product->get_short_description() ) : ?>
+                        <p class="lj-class__when"><?php echo esc_html( wp_strip_all_tags( $product->get_short_description() ) ); ?></p>
+                    <?php endif; ?>
+                </div>
+
+                <div class="lj-class__capacity">
+                    <div class="lj-capacity" role="img"
+                         aria-label="<?php echo esc_attr( sprintf( '%d of %d places taken', $taken, $capacity ) ); ?>">
+                        <span class="lj-capacity__fill" style="width:<?php echo esc_attr( (string) $percent ); ?>%"></span>
+                    </div>
+                    <p class="lj-capacity__label">
+                        <?php if ( $is_full ) : ?>
+                            <strong>Class full</strong> &middot; <?php echo esc_html( (string) $capacity ); ?> places taken
+                        <?php else : ?>
+                            <strong><?php echo esc_html( (string) $remaining ); ?></strong>
+                            of <?php echo esc_html( (string) $capacity ); ?> places left
+                        <?php endif; ?>
+                    </p>
+                </div>
+
+                <div class="lj-class__action">
+                    <?php if ( $is_unschedule ) : ?>
+                        <span class="lj-badge lj-badge--progress">Dates to be confirmed</span>
+                    <?php elseif ( $is_bookable ) : ?>
+                        <a class="wp-block-button__link wp-element-button"
+                           href="<?php echo esc_url( $product->add_to_cart_url() ); ?>">
+                            Book a place &middot; <?php echo wp_kses_post( $product->get_price_html() ); ?>
+                        </a>
+                    <?php else : ?>
+                        <a class="wp-block-button__link wp-element-button lj-class__waitlist"
+                           href="<?php echo esc_url( $mailto ); ?>">
+                            Email me about a place
+                        </a>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php
+            $rows[] = (string) ob_get_clean();
+        }
+
+        if ( empty( $rows ) ) {
+            return '<p class="lj-class__empty">Class dates are being confirmed. Please check back shortly.</p>';
+        }
+
+        return '<div class="lj-classes">' . implode( '', $rows ) . '</div>';
+    }
+);
+
+/**
  * Footer credit line with the current year.
  *
  * WordPress has no core block that renders the current year, and hardcoding it

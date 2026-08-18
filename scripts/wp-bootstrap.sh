@@ -169,6 +169,9 @@ if wp plugin is-active woocommerce 2>/dev/null; then
         --description="$desc" \
         --short_description="$short" \
         --porcelain 2>/dev/null)
+      # WooCommerce stores only REMAINING stock. To show "22 of 28 taken" the
+      # original capacity has to be recorded separately, once, at creation.
+      wp post meta update "$id" _lj_capacity "$places" >/dev/null
       echo "  created  $sku (#$id, $places places, draft, unpriced)"
     else
       # stock_quantity is deliberately NOT updated here. Once bookings exist,

@@ -401,6 +401,110 @@ p.lj-badge-row {
 }
 
 /* ---------------------------------------------------------------------
+   Tech camp classes and capacity bars.
+   Rendered by the [lj_camp_classes] shortcode. The three states map to real
+   stock levels, not decoration: open, filling (>=75% taken), and full.
+   --------------------------------------------------------------------- */
+.lj-classes {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.lj-class {
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 260px) auto;
+  gap: 1.25rem;
+  align-items: center;
+  border: 1px solid var(--wp--preset--color--accent-4);
+  border-radius: 8px;
+  background: var(--wp--preset--color--accent-3);
+  padding: 1.25rem 1.5rem;
+}
+
+.lj-class__name {
+  font-family: var(--wp--preset--font-family--mono);
+  font-size: 1rem;
+  margin: 0;
+  color: var(--wp--preset--color--contrast);
+}
+
+.lj-class__when {
+  margin: 0.3rem 0 0;
+  color: var(--wp--preset--color--accent-2);
+  font-size: 0.85rem;
+}
+
+/* The bar itself. */
+.lj-capacity {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--wp--preset--color--accent-4);
+  overflow: hidden;
+}
+
+.lj-capacity__fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.lj-capacity__label {
+  margin: 0.45rem 0 0;
+  font-family: var(--wp--preset--font-family--mono);
+  font-size: 0.75rem;
+  color: var(--wp--preset--color--accent-2);
+}
+
+/* State colours. Green while there is room, amber once it is filling, red when
+   full - the same semantics as the In Progress badge, so the palette stays
+   consistent about what each colour means. */
+.lj-class.is-open .lj-capacity__fill    { background: var(--wp--preset--color--accent-1); }
+.lj-class.is-filling .lj-capacity__fill { background: #ffbd2e; }
+.lj-class.is-full .lj-capacity__fill    { background: #ff5f57; }
+
+.lj-class.is-filling .lj-capacity__label strong { color: #ffbd2e; }
+.lj-class.is-full    .lj-capacity__label strong { color: #ff5f57; }
+.lj-class.is-open    .lj-capacity__label strong { color: var(--wp--preset--color--accent-1); }
+
+.lj-class.is-full {
+  border-color: rgba(255, 95, 87, 0.35);
+}
+
+/* A full class gets a muted button, so it is clearly a different action from
+   booking rather than looking like the primary path. */
+.lj-class__waitlist {
+  border-color: var(--wp--preset--color--accent-2) !important;
+  color: var(--wp--preset--color--accent-2) !important;
+}
+
+.lj-class__waitlist:hover {
+  background: var(--wp--preset--color--accent-2) !important;
+  color: var(--wp--preset--color--base) !important;
+}
+
+.lj-class__empty {
+  color: var(--wp--preset--color--accent-2);
+  font-style: italic;
+}
+
+/* Stack on tablets and phones - three columns in a row stop being readable
+   well before the cards themselves get narrow. */
+@media (max-width: 860px) {
+  .lj-class {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .lj-class__action .wp-block-button__link {
+    display: block;
+    text-align: center;
+  }
+}
+
+/* ---------------------------------------------------------------------
    Footer.
    --------------------------------------------------------------------- */
 .lj-footer .wp-block-site-title {
