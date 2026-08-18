@@ -461,6 +461,51 @@ The open overlay is also styled explicitly. Core gives it no colours, so on a da
 
 Other narrow-screen guards: the blog grid's `minimumColumnWidth: 20rem` overflows below ~320px, so it is forced to a single column under 26rem; `overflow-wrap` prevents long URLs and command flags from forcing horizontal scroll; and hero/heading/code sizes step down under 480px.
 
+### Tech camp booking (WooCommerce)
+
+**Stock is the capacity cap.** Each class is a WooCommerce product with `manage_stock=true`, `backorders=no` and `sold_individually=true`. That is not a workaround — it is precisely what stock management does, and it means WooCommerce resolves the race when two parents buy the last place simultaneously. No events plugin, no licence.
+
+Rejected alternative: Eventin (~$79/yr) — and its waitlist tier could never be confirmed from vendor docs.
+
+| Setting | Value | Why |
+|---|---|---|
+| `woocommerce_currency` | NZD | |
+| `woocommerce_enable_guest_checkout` | yes | Forcing account creation is the biggest cause of abandoned bookings |
+| `woocommerce_hold_stock_minutes` | 60 | An abandoned checkout releases its place; otherwise a class shows full when it is not |
+| `woocommerce_calc_taxes` | no | GST depends on registration status — the owner's decision, not a default to guess |
+| `ship_to_countries` | disabled | Products are virtual; nothing ships |
+
+All settings are written by `wp-bootstrap.sh` rather than left to the setup wizard, so a rebuilt site behaves identically instead of depending on someone clicking through onboarding the same way twice.
+
+**Products are created `draft` and with no price.** WooCommerce refuses to sell a product without a price, so an unpriced class cannot be booked even if published by accident — a far safer placeholder than `0.00`, which would give places away free.
+
+#### The capacity indicator
+
+`[lj_camp_classes]` (in `functions.php`) renders each class with a bar and one of three states driven by real stock:
+
+| State | Trigger | Colour | Action shown |
+|---|---|---|---|
+| `is-open` | < 75% taken | green | Book a place |
+| `is-filling` | ≥ 75% taken | amber | Book a place |
+| `is-full` | stock 0 | red | **Email me about a place** |
+
+When full the booking button is *replaced*, not disabled, so a parent has somewhere to go instead of a dead end. Unpriced products show an "In Progress" badge instead — unscheduled takes precedence over full.
+
+**`_lj_capacity` post meta is required.** WooCommerce tracks only *remaining* stock, so the original class size is stored separately; `taken = capacity − stock`.
+
+> ⚠️ It must be written on **create and update**. Setting it only on create left the already-existing products without the meta, and the shortcode fell back to `capacity = remaining` — so a class with 14 of 28 places sold rendered as "0 of 14 taken" with an empty bar. A wrong number that looks plausible is worse than an obvious error.
+
+Verified across the full range: `28→0/28/0%`, `14→14/28/50%`, `7→21/28/75% amber`, `3→25/28/89%`, `0→28/28/100% red + email link`.
+
+#### Before this can take real money
+
+1. **Stripe account** — business and bank verification, days of lead time
+2. **Transactional email** — receipts must reach parents; Gmail SMTP will land them in spam. Needs a provider plus SPF/DKIM/DMARC, and those DNS records live in `terraform/**`, which triggers the failing CI pipeline
+3. **Privacy policy and refund terms published** — the Privacy Policy page still exists as a draft
+4. **Real schedule** — dates, times, price and class count are all placeholders
+
+**Medical and allergy data is deliberately not collected online** (owner's decision). Checkout captures child name, age and emergency contact only; medical details are gathered separately nearer the camp date, so sensitive data about minors is not sitting in the database and every nightly backup.
+
 ### Status badge
 
 Unfinished work is marked with a reusable badge rather than a sentence buried in prose, so a thin page reads as deliberately in progress instead of broken:
