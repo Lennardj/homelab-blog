@@ -145,12 +145,16 @@ if wp plugin is-active woocommerce 2>/dev/null; then
   # the details are still invented.
   WC_ADMIN="${WC_ADMIN:-1}"
 
-  # No price is set deliberately. WooCommerce refuses to sell a product with no
-  # price, so an unpriced product cannot be booked even if it is published by
-  # accident. That is a far safer placeholder than 0.00, which would silently
-  # give places away for free.
+  # Price is declared here, so Git is the source of truth for what a place costs.
+  # Products still stay `draft` until payment is live - a published, priced
+  # product with no working payment gateway is worse than no product at all.
+  #
+  # Session price 140; both sessions together 200, applied as a cart discount
+  # rather than a separate full-day SKU. A full-day product would carry its own
+  # stock, and nothing would then stop 28 morning + 28 full-day bookings putting
+  # 56 children in a room built for 28. See lj_camp_full_day_price() in the theme.
   upsert_class() {
-    sku="$1"; name="$2"; places="$3"; desc="$4"; short="$5"
+    sku="$1"; name="$2"; places="$3"; price="$4"; desc="$5"; short="$6"
 
     id=$(wp wc product list --sku="$sku" --field=id --user="$WC_ADMIN" 2>/dev/null | head -n1)
 
@@ -162,6 +166,7 @@ if wp plugin is-active woocommerce 2>/dev/null; then
         --type=simple \
         --status=draft \
         --virtual=true \
+        --regular_price="$price" \
         --manage_stock=true \
         --stock_quantity="$places" \
         --backorders=no \
@@ -169,19 +174,20 @@ if wp plugin is-active woocommerce 2>/dev/null; then
         --description="$desc" \
         --short_description="$short" \
         --porcelain 2>/dev/null)
-      echo "  created  $sku (#$id, $places places, draft, unpriced)"
+      echo "  created  $sku (#$id, $places places, \$$price, draft)"
     else
       # stock_quantity is deliberately NOT updated here. Once bookings exist,
       # resetting it would wipe the record of how many places have sold.
       wp wc product update "$id" \
         --user="$WC_ADMIN" \
         --name="$name" \
+        --regular_price="$price" \
         --manage_stock=true \
         --backorders=no \
         --sold_individually=true \
         --description="$desc" \
         --short_description="$short" >/dev/null 2>&1
-      echo "  updated  $sku (#$id)  [stock and price left as-is]"
+      echo "  updated  $sku (#$id, \$$price)  [stock left as-is]"
     fi
 
     # WooCommerce stores only REMAINING stock, so the original class size has to
@@ -200,27 +206,28 @@ if wp plugin is-active woocommerce 2>/dev/null; then
   # public) until published, at which point the capacity UI picks them up with
   # no code change.
   #
-  # DATES ARE STILL TBC - the holiday spans two full Mon-Fri weeks
-  # (28 Sep - 2 Oct, and 5 - 9 Oct 2026) and the week has not been chosen yet.
-  # Products remain draft and unpriced until it is.
+  # Week one of the holiday: Mon 28 Sep - Fri 2 Oct 2026. If it fills, either a
+  # second class opens (publish the -2 products) or week two (5-9 Oct) is added.
+  # Products stay DRAFT until Stripe and transactional email are live - a
+  # published, priced product with no working payment gateway is worse than none.
   echo "== camp sessions =="
   upsert_class "camp-morning" \
-    "AI Camp - Morning Session" "28" \
+    "AI Camp - Morning Session, 28 Sep - 2 Oct" "28" "140" \
     "Five days of hands-on AI, Monday to Friday, 9:30am to 12:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
     "Mon-Fri, 9:30am - 12:30pm"
 
   upsert_class "camp-afternoon" \
-    "AI Camp - Afternoon Session" "28" \
+    "AI Camp - Afternoon Session, 28 Sep - 2 Oct" "28" "140" \
     "Five days of hands-on AI, Monday to Friday, 1:30pm to 4:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
     "Mon-Fri, 1:30pm - 4:30pm"
 
   upsert_class "camp-morning-2" \
-    "AI Camp - Morning Session (Second Class)" "28" \
+    "AI Camp - Morning Session (Second Class), 28 Sep - 2 Oct" "28" "140" \
     "A second morning class running alongside the first. Five days of hands-on AI, Monday to Friday, 9:30am to 12:30pm at Rosmini College, Takapuna." \
     "Mon-Fri, 9:30am - 12:30pm"
 
   upsert_class "camp-afternoon-2" \
-    "AI Camp - Afternoon Session (Second Class)" "28" \
+    "AI Camp - Afternoon Session (Second Class), 28 Sep - 2 Oct" "28" "140" \
     "A second afternoon class running alongside the first. Five days of hands-on AI, Monday to Friday, 1:30pm to 4:30pm at Rosmini College, Takapuna." \
     "Mon-Fri, 1:30pm - 4:30pm"
 

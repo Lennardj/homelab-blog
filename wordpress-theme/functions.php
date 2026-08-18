@@ -48,6 +48,120 @@ add_action(
 );
 
 /**
+ * Tech camp SKUs, grouped by session.
+ *
+ * The "-2" entries are overflow classes that run alongside the first when it
+ * fills. They are draft until needed.
+ */
+function lj_camp_skus(): array {
+    return array(
+        'morning'   => array( 'camp-morning', 'camp-morning-2' ),
+        'afternoon' => array( 'camp-afternoon', 'camp-afternoon-2' ),
+    );
+}
+
+/**
+ * Full-day price. A single session is £/$140; both together are 200 rather than
+ * 280, so the discount is derived rather than hardcoded - change the session
+ * price and the maths still holds.
+ */
+function lj_camp_full_day_price(): float {
+    return (float) apply_filters( 'lj_camp_full_day_price', 200 );
+}
+
+/**
+ * Apply the full-day discount when a cart contains both a morning and an
+ * afternoon session.
+ *
+ * WHY A DISCOUNT AND NOT A "FULL DAY" PRODUCT
+ * A separate full-day SKU would carry its own stock, and nothing would stop
+ * 28 morning + 28 full-day bookings putting 56 children in a room built for 28.
+ * WooCommerce cannot share stock between products, and Product Bundles is a paid
+ * extension. Selling the two real sessions keeps every capacity count honest,
+ * and the discount is the only thing that needs adding.
+ */
+add_action(
+    'woocommerce_cart_calculate_fees',
+    static function ( $cart ): void {
+        if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
+            return;
+        }
+
+        if ( ! $cart instanceof WC_Cart ) {
+            return;
+        }
+
+        $skus         = lj_camp_skus();
+        $morning_cost = null;
+        $after_cost   = null;
+
+        foreach ( $cart->get_cart() as $item ) {
+            if ( empty( $item['data'] ) || ! $item['data'] instanceof WC_Product ) {
+                continue;
+            }
+
+            $sku   = (string) $item['data']->get_sku();
+            $price = (float) $item['data']->get_price();
+
+            if ( in_array( $sku, $skus['morning'], true ) && null === $morning_cost ) {
+                $morning_cost = $price;
+            }
+
+            if ( in_array( $sku, $skus['afternoon'], true ) && null === $after_cost ) {
+                $after_cost = $price;
+            }
+        }
+
+        if ( null === $morning_cost || null === $after_cost ) {
+            return;
+        }
+
+        $discount = ( $morning_cost + $after_cost ) - lj_camp_full_day_price();
+
+        if ( $discount > 0 ) {
+            $cart->add_fee( 'Full-day discount', -$discount );
+        }
+    }
+);
+
+/**
+ * "Book the full day" link handler - adds both sessions in one click.
+ *
+ * WooCommerce's ?add-to-cart= only accepts a single product, so booking both
+ * sessions would otherwise mean two separate add-to-cart round trips and a
+ * parent hoping the discount appears.
+ */
+add_action(
+    'template_redirect',
+    static function (): void {
+        if ( empty( $_GET['lj_full_day'] ) || ! function_exists( 'WC' ) || ! WC()->cart ) {
+            return;
+        }
+
+        $group = sanitize_key( wp_unslash( $_GET['lj_full_day'] ) );
+        $skus  = lj_camp_skus();
+
+        // "primary" books the first class of each session; "second" the overflow.
+        $index = ( 'second' === $group ) ? 1 : 0;
+
+        foreach ( array( $skus['morning'][ $index ], $skus['afternoon'][ $index ] ) as $sku ) {
+            $product_id = wc_get_product_id_by_sku( $sku );
+            if ( ! $product_id ) {
+                continue;
+            }
+
+            $product = wc_get_product( $product_id );
+            if ( $product instanceof WC_Product && $product->is_purchasable() && $product->is_in_stock() ) {
+                WC()->cart->add_to_cart( $product_id, 1 );
+            }
+        }
+
+        wp_safe_redirect( wc_get_cart_url() );
+        exit;
+    }
+);
+
+/**
  * [lj_camp_classes] - tech camp classes with a live capacity indicator.
  *
  * WooCommerce stock IS the capacity cap: manage_stock + backorders=no means a
@@ -181,7 +295,50 @@ add_shortcode(
             return '<p class="lj-class__empty">Class dates are being confirmed. Please check back shortly.</p>';
         }
 
-        return '<div class="lj-classes">' . implode( '', $rows ) . '</div>';
+        $output = '<div class="lj-classes">' . implode( '', $rows ) . '</div>';
+
+        // Full-day offer, shown only when both halves of a day are actually
+        // bookable. Advertising a saving a parent cannot take is worse than not
+        // mentioning it.
+        $skus = lj_camp_skus();
+
+        foreach ( array( 0 => 'primary', 1 => 'second' ) as $index => $group ) {
+            $morning   = wc_get_product( wc_get_product_id_by_sku( $skus['morning'][ $index ] ) );
+            $afternoon = wc_get_product( wc_get_product_id_by_sku( $skus['afternoon'][ $index ] ) );
+
+            if ( ! $morning instanceof WC_Product || ! $afternoon instanceof WC_Product ) {
+                continue;
+            }
+
+            $both_open = $morning->is_purchasable() && $morning->is_in_stock()
+                && $afternoon->is_purchasable() && $afternoon->is_in_stock();
+
+            if ( ! $both_open ) {
+                continue;
+            }
+
+            $saving = ( (float) $morning->get_price() + (float) $afternoon->get_price() ) - lj_camp_full_day_price();
+
+            $output .= sprintf(
+                '<div class="lj-fullday">
+                    <div>
+                        <strong>Book the full day</strong>
+                        <span>Morning and afternoon together%s</span>
+                    </div>
+                    <a class="wp-block-button__link wp-element-button" href="%s">Full day &middot; %s</a>
+                </div>',
+                $saving > 0
+                    ? ' &mdash; save ' . wp_kses_post( wc_price( $saving ) )
+                    : '',
+                esc_url( add_query_arg( 'lj_full_day', $group, get_permalink() ) ),
+                wp_kses_post( wc_price( lj_camp_full_day_price() ) )
+            );
+
+            // Only ever offer one full-day bundle at a time.
+            break;
+        }
+
+        return $output;
     }
 );
 

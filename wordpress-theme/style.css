@@ -538,6 +538,33 @@ p.lj-badge-row {
   color: var(--wp--preset--color--base) !important;
 }
 
+/* Full-day offer - visually distinct from the session rows so it reads as an
+   upgrade rather than a third class. */
+.lj-fullday {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding: 1.1rem 1.5rem;
+  border: 1px dashed var(--wp--preset--color--accent-1);
+  border-radius: 8px;
+  background: rgba(74, 222, 128, 0.05);
+}
+
+.lj-fullday strong {
+  display: block;
+  font-family: var(--wp--preset--font-family--mono);
+  color: var(--wp--preset--color--accent-1);
+  font-size: 0.95rem;
+}
+
+.lj-fullday span {
+  color: var(--wp--preset--color--accent-2);
+  font-size: 0.85rem;
+}
+
 .lj-class__empty {
   color: var(--wp--preset--color--accent-2);
   font-style: italic;
