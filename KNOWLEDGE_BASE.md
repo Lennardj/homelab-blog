@@ -569,6 +569,28 @@ Brevo's **IP authorisation** feature was rejecting the cluster's egress IP (`116
 
 **Lesson:** the client library's error message described the wrong failure. `SMTPDebug` showing the server's actual response is what solved it — otherwise the obvious next step (regenerating keys) would have been wasted effort against a problem that had nothing to do with keys.
 
+#### Reply path for booking emails
+
+Sending was only half the problem. `holidaycamp@lennardjohn.org` initially **could not receive mail at all** - probed directly against the MX:
+
+```
+RCPT TO:<holidaycamp@lennardjohn.org>
+550 5.1.1 Address does not exist.
+```
+
+Every parent hitting reply on a booking confirmation would have bounced, invisibly. Fixed with a Cloudflare Email Routing rule forwarding to the owner's Gmail. Re-probed, with a deliberate control to prove it is a specific rule and not a catch-all:
+
+```
+holidaycamp@       <- 250 2.1.0 Ok
+control (bogus)    <- 550 5.1.1 Address does not exist.
+```
+
+**Cloudflare Email Routing is receive-only.** It provides no mailbox and no way to send, so replying from Gmail would go out as the personal address. Sending *as* the camp address is configured through Gmail's "Send mail as" using the same Brevo SMTP credentials (`smtp-relay.brevo.com:587`).
+
+> WARNING: that places the Brevo SMTP key in **two** locations - the `smtp-secrets` Kubernetes Secret and Gmail's settings. Rotating it means updating both, and the cluster side fails **silently**: booking confirmations simply stop.
+
+**Diagnostic worth reusing:** an SMTP `RCPT TO` probe (no `DATA`, nothing actually sent) answers "can this address receive mail?" definitively in seconds, without waiting on a bounce. Always pair it with a known-bad address as a control, or a catch-all will read as success.
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time
