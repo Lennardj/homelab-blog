@@ -2104,6 +2104,51 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Feature — Camp checkout fields, and the API that silently does nothing
+
+### The trap
+
+The requirement was ordinary: collect student name, year level and an emergency contact at checkout. Every tutorial and most Stack Overflow answers reach for `woocommerce_checkout_fields`.
+
+That filter applies **only to the classic checkout**. WooCommerce 11 installs the block checkout by default (`wp:woocommerce/checkout` in the page content), and against it the filter registers cleanly, throws no error, logs nothing, and renders no fields whatsoever.
+
+Checking which checkout was actually installed took one command and avoided writing code that would have appeared correct in review:
+
+```
+wp post get 72 --field=post_content
+<!-- wp:woocommerce/checkout -->
+```
+
+The correct mechanism is the Additional Checkout Fields API (`woocommerce_register_additional_checkout_field`, WooCommerce 8.9+), which also handles persistence, admin order display and inclusion in emails - all of which would otherwise have been hand-written hooks.
+
+### Design decisions
+
+**Order level, not item level.** `sold_individually` caps each session at one per order, so an order corresponds to exactly one student. Per-item fields would have added complexity for a case that cannot occur.
+
+**Validation beyond required.** Required-ness is satisfied by "n/a". For an emergency phone that is a present-but-useless value with real consequences, so it is validated for at least seven digits.
+
+**Medical and dietary details are deliberately absent.** They are sensitive data about minors, they would live in the orders table, and therefore in every nightly backup and every restore. Collected separately closer to the camp date instead - the same operational outcome with a materially smaller obligation.
+
+### Verification
+
+Registration alone does not prove the data survives. A test order was created programmatically, the fields persisted and read back, and the order deleted:
+
+```
+lj/student-name        Test Student
+lj/student-year        year-9
+lj/emergency-name      Test Parent
+lj/emergency-phone     0211234567
+```
+
+### Interview talking points
+
+1. **Check which implementation you are extending before extending it.** Classic and block checkout share a name and almost nothing else. The failure mode here is not an exception - it is silence, which is far more expensive to diagnose than a crash.
+2. **Prefer the API that owns the whole lifecycle.** The Additional Fields API handles storage, admin rendering and email inclusion. The classic approach needs four separate hooks, each an opportunity to forget one and lose data that was successfully collected.
+3. **Required is not the same as valid.** The distinction matters most exactly where the data matters most.
+4. **Data you do not collect cannot leak.** Excluding medical information was not a technical constraint but a deliberate reduction in blast radius, given the data would otherwise propagate into every backup.
+
+---
+
 ## Incident #29 — Brevo SMTP: the client library named the wrong failure
 
 **Symptom:** With credentials in place, every send failed:

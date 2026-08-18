@@ -591,6 +591,18 @@ control (bogus)    <- 550 5.1.1 Address does not exist.
 
 **Diagnostic worth reusing:** an SMTP `RCPT TO` probe (no `DATA`, nothing actually sent) answers "can this address receive mail?" definitively in seconds, without waiting on a bounce. Always pair it with a known-bad address as a control, or a catch-all will read as success.
 
+#### Checkout fields
+
+Collected at checkout: **student full name**, **year level** (7-10), **emergency contact name**, **emergency contact phone**. Registered in `functions.php`.
+
+> WooCommerce 11 installs the **block checkout** (`wp:woocommerce/checkout`), not the classic shortcode. The widely-documented `woocommerce_checkout_fields` filter **does nothing** there - it applies only to the classic checkout, so following the usual tutorials produces code that runs without error and renders no fields at all. Block checkout requires the Additional Checkout Fields API (`woocommerce_register_additional_checkout_field`, WooCommerce 8.9+), which handles persistence, admin display and email inclusion automatically.
+
+Fields are registered at `order` level rather than per line item, because `sold_individually` means one order corresponds to one student.
+
+**Emergency phone is validated for digits, not just presence.** Required-ness alone is satisfied by "n/a", which would leave nobody reachable if a child were hurt - the one field where a present-but-useless value has real consequences.
+
+Verified end to end: fields registered, persisted to an order, and read back correctly.
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time
