@@ -169,9 +169,6 @@ if wp plugin is-active woocommerce 2>/dev/null; then
         --description="$desc" \
         --short_description="$short" \
         --porcelain 2>/dev/null)
-      # WooCommerce stores only REMAINING stock. To show "22 of 28 taken" the
-      # original capacity has to be recorded separately, once, at creation.
-      wp post meta update "$id" _lj_capacity "$places" >/dev/null
       echo "  created  $sku (#$id, $places places, draft, unpriced)"
     else
       # stock_quantity is deliberately NOT updated here. Once bookings exist,
@@ -186,6 +183,16 @@ if wp plugin is-active woocommerce 2>/dev/null; then
         --short_description="$short" >/dev/null 2>&1
       echo "  updated  $sku (#$id)  [stock and price left as-is]"
     fi
+
+    # WooCommerce stores only REMAINING stock, so the original class size has to
+    # be recorded separately for "22 of 28 taken" to be calculable.
+    #
+    # Written on BOTH create and update, deliberately. Setting it only on create
+    # left every pre-existing product without the meta, and the shortcode then
+    # fell back to capacity = remaining - so a class with 14 of 28 places sold
+    # rendered as "0 of 14 taken" with an empty bar. Declared capacity lives in
+    # this script, so this script is what writes it.
+    wp post meta update "$id" _lj_capacity "$places" >/dev/null
   }
 
   echo "== camp classes =="
