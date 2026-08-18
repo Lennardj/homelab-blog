@@ -2104,6 +2104,191 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #29 — Brevo SMTP: the client library named the wrong failure
+
+**Symptom:** With credentials in place, every send failed:
+
+```
+WP_MAIL_FAILED: SMTP Error: Could not authenticate.
+```
+
+That message points squarely at bad credentials. It was wrong.
+
+**Diagnostic steps:**
+
+1. Verified the credentials reached PHP at all — a real possibility, since Apache does not automatically expose container environment variables to `getenv()`:
+   ```
+   SMTP_HOST  smtp-relay.brevo.com
+   SMTP_USER  b5d952001@smtp-brevo.com
+   SMTP_PASS  set (90 chars)
+   ```
+2. Checked credential *shape* without printing secrets — a trailing newline introduced by a shell is a classic cause:
+   ```
+   user len 24, trimmed 24  OK      ends with @smtp-brevo.com: yes
+   pass len 90, trimmed 90  OK      starts with xsmtpsib-:     yes
+   ```
+   Both well-formed, and not mangled in transit.
+3. Enabled `SMTPDebug = 2` to capture the raw SMTP conversation rather than PHPMailer's summary of it.
+
+**Root cause:**
+
+```
+CLIENT -> SERVER: AUTH CRAM-MD5
+SERVER -> CLIENT: 525 5.7.1 Unauthorized IP address
+```
+
+Brevo's **IP authorisation** feature was rejecting the connection on source IP, *before* evaluating the key at all. Nothing was wrong with the credentials. PHPMailer collapses any failed AUTH exchange into "Could not authenticate", discarding the server's actual explanation.
+
+**Fix:** disabled IP authorisation in Brevo rather than allowlisting the cluster egress IP (`116.251.171.15`).
+
+That choice was deliberate. The egress IP is a residential connection and can change on any reboot, ISP event or lease renewal. When it changed, booking confirmations would stop sending **silently** — no error surfaced to the site, no alert, and the first sign would be a parent reporting they never received a receipt. A 90-character key is strong authentication by itself; an allowlist that fails unpredictably and invisibly is a worse trade.
+
+**Verification:**
+```
+235 2.0.0 Authentication succeeded
+MAIL FROM:<holidaycamp@lennardjohn.org>  -> 250 accepting mail
+RCPT TO:<...>                            -> 250 will make sure it gets this
+250 2.0.0 OK: queued
+```
+
+**Interview talking points:**
+
+1. **Client libraries summarise; servers explain.** "Could not authenticate" is the library's interpretation of a failed AUTH exchange. The server said `525 Unauthorized IP address` — a different problem with a different fix. The obvious next step suggested by the library message, regenerating the key, would have been wasted effort.
+2. **Get to the wire protocol.** SMTP and most protocols underneath this stack are inspectable. One debug flag turned an ambiguous failure into an exact answer. Reach for the raw exchange before theorising.
+3. **Eliminate cheap causes in a way that produces evidence.** Checking credential length and prefix without printing the secret ruled out malformed input and shell-introduced whitespace in seconds, and made the "credentials are fine" conclusion defensible rather than assumed.
+4. **Choose the failure mode you can detect.** IP allowlisting on a dynamic residential IP fails silently at an unpredictable future date. Given two security postures, prefer the one whose failure is visible — or at minimum, alert on the one that is not.
+5. **A missing Secret must not be an outage.** The `secretKeyRef` entries use `optional: true`, so absent credentials fall through to PHP `mail()`. Without that flag the pod refuses to start, and deploying the manifest before creating the Secret would have taken the entire site down in order to configure email.
+
+---
+
+## Incident #28 — A correct deploy that looked like a failed one: CDN cache keys
+
+**Symptom:** Responsive CSS fixes were committed, pushed, reconciled by Argo CD and confirmed present in the running pod — and had no effect on the live site. Repeated deploys changed nothing.
+
+**Diagnostic:** compared the file on disk in the pod against what the CDN was serving.
+
+```
+pod:    17188 bytes, new rules present
+served: 13207 bytes, cf-cache-status: HIT, age: 372, cache-control: max-age=14400
+```
+
+**Root cause:** the stylesheet is served through Cloudflare with a four-hour TTL. WordPress appends `?ver=` to the enqueued URL, and that query string forms part of the cache key. The version came from the theme header — a static `1.0.0` — so **the cache key never changed when the file did.** Cloudflare kept serving the previous copy while the origin was already correct.
+
+This had been silently affecting every theme change made that day.
+
+**Fix:** derive the enqueue version from the file modification time instead of the theme header:
+
+```php
+$style_path = get_stylesheet_directory() . '/style.css';
+$style_ver  = file_exists( $style_path ) ? (string) filemtime( $style_path ) : ...;
+wp_enqueue_style( 'lennardjohn-child', ..., $style_ver );
+```
+
+The theme is re-cloned from Git into a fresh `emptyDir` on every pod start, so mtime changes on every deploy and the cache busts automatically — no version number to remember to bump.
+
+**Interview talking points:**
+
+1. **"Deployed" is not "delivered".** There are several distinct states — committed, reconciled, present on disk, served by the origin, served by the edge, rendered by the browser. A failure at any one of them looks identical from the browser. Naming which state you have actually verified is the difference between debugging and guessing.
+2. **Compare origin against edge.** One `wc -c` inside the pod and one `curl` through the CDN located the problem immediately. Testing only in a browser conflates at least three caches.
+3. **Cache invalidation should be automatic, not remembered.** A version number a human must bump will eventually not be bumped. Deriving it from mtime makes correctness a property of the deploy rather than of someone's discipline.
+4. **The same class of bug appeared twice in one session** — see Incident #27, where `kubectl cp` served stale content. Both presented as "my change did nothing". When that happens, suspect a stale copy before suspecting the change.
+
+---
+
+## Incident #27 — `kubectl cp` silently re-applied stale content
+
+**Symptom:** A content deploy reported success for all 19 pages and changed nothing on the site:
+
+```
+updated  home (#7)
+updated  about (#8)
+...
+```
+
+Every page reported `updated`. Every page kept its previous content.
+
+**Diagnostic:** compared the source file on the master node against the copy inside the pod.
+
+```
+master:  /tmp/content/kubernetes.html           11848 bytes  (new)
+pod:     /tmp/content/kubernetes.html            4750 bytes  (OLD)
+pod:     /tmp/content/content/kubernetes.html   11848 bytes  (new, nested)
+```
+
+**Root cause:** `kubectl cp <dir> pod:/path` **nests the copy when `/path` already exists**, creating `/tmp/content/content/` and leaving the previous files at `/tmp/content/`. The bootstrap script read the stale files and dutifully re-applied the old content to every page, reporting `updated` for each one.
+
+The bug was latent. Earlier deploys had included `kubectl rollout restart`, which recreates the pod and wipes `/tmp` — so the destination never existed and the copy landed correctly. The first deploy that skipped the restart exposed it.
+
+**Fix:** delete the destination inside the pod before copying, and verify:
+
+```bash
+kubectl exec -n wordpress $POD -- rm -rf /tmp/content
+kubectl cp /tmp/content wordpress/$POD:/tmp/content
+kubectl exec -n wordpress deploy/wpcli -- ls -d /tmp/content/content   # must not exist
+```
+
+**Interview talking points:**
+
+1. **A failure that reports success is the most expensive kind.** The script output was indistinguishable from a correct run. Nothing errored, nothing warned, and the only evidence was that the site did not change. Tools that report their *intent* rather than their *effect* need independent verification.
+2. **`kubectl cp` inherits `cp` semantics, including the surprising one.** Copying a directory onto an existing directory nests rather than merges — predictable in hindsight, invisible in output.
+3. **Incidental conditions mask bugs.** A `rollout restart` that existed for an unrelated reason had been hiding this for days. Removing an apparently unrelated step surfaced it, which is the signature of a latent bug rather than a new one.
+4. **Verify the input, not just the output.** The fix that mattered was not the `rm -rf`; it was checking that the file inside the pod matched the file on disk before trusting anything downstream of it.
+
+---
+
+## Feature — Tech camp bookings: stock as a capacity cap
+
+### The requirement
+
+Sell places on a five-day AI camp for Year 7–10 students: two daily sessions, a hard cap of 28 per session, online payment, a visible indicator of how full each session is, and a route for parents to reach the owner once a session fills.
+
+### Why WooCommerce stock, and not an events plugin
+
+Each session is a WooCommerce product with `manage_stock=true`, `backorders=no` and `sold_individually=true`. **Stock is the capacity cap.** That is not a workaround — it is exactly what stock management does, and it means WooCommerce resolves the race when two parents buy the last place simultaneously, rather than that logic being hand-written.
+
+The alternative considered was Eventin (~$79/yr), whose waitlist tier could not be confirmed from vendor documentation. WooCommerce was already installed and gives a hard, race-safe cap for nothing.
+
+### The full-day pricing trap
+
+A single session is $140; both sessions together are $200 rather than $280.
+
+The obvious implementation — a third "full day" product — is wrong, and wrong in a way that only shows up once real bookings exist. A full-day SKU carries **its own stock**, and nothing then prevents 28 morning bookings plus 28 full-day bookings putting 56 children in a room built for 28. WooCommerce cannot share stock between products, and Product Bundles is a paid extension.
+
+Selling the two real sessions and applying a cart-level discount keeps every capacity count honest, because both sessions genuinely decrement:
+
+```php
+$discount = ( $morning_cost + $after_cost ) - lj_camp_full_day_price();
+$cart->add_fee( 'Full-day discount', -$discount );
+```
+
+The discount is **derived**, not hardcoded, so changing the session price keeps the arithmetic correct. Verified: subtotal 280, fee -80, total 200.00.
+
+### The capacity indicator, and the bug in it
+
+`[lj_camp_classes]` renders each session with a bar in one of three states driven by real stock: open, filling (>=75% taken), and full. When a session is full the booking button is **replaced** by an email link rather than disabled, so a parent has somewhere to go instead of a dead end.
+
+WooCommerce tracks only *remaining* stock, so the original class size is stored separately as `_lj_capacity` post meta, and `taken = capacity - stock`.
+
+**The bug:** that meta was written only in the `create` branch of the upsert. The products already existed, so the `update` branch ran and the meta was never written. The shortcode fell back to `capacity = remaining`, and a session with 14 of 28 places sold rendered as **"0 of 14 places taken" with an empty bar**.
+
+Fixed by writing the meta on both paths. Verified across the range: `28 -> 0/28 0%`, `14 -> 14/28 50%`, `7 -> 21/28 75% amber`, `3 -> 25/28 89%`, `0 -> 28/28 100% red + email link`.
+
+### Safety properties built in deliberately
+
+- **Products are created `draft` and unpriced.** WooCommerce refuses to sell a product with no price, so a class cannot be booked even if published by accident — a far safer placeholder than `0.00`, which would give places away free.
+- **`sold_individually`** stops one order consuming a whole class, at the cost of a parent with two children placing two bookings.
+- **Overflow classes** exist as drafts. When a session fills, publishing the matching second class makes it bookable with no code change.
+- **`stock_quantity` is never updated by the bootstrap after creation** — re-running it would otherwise wipe the record of how many places had sold.
+
+### Interview talking points
+
+1. **Model capacity where the race is already solved.** Writing a booking cap by hand means writing the concurrency control by hand. Stock management already handles simultaneous checkout of the last unit; using it removes an entire class of bug rather than solving it.
+2. **A convenience price can break a physical constraint.** The full-day product would have been the natural implementation and would have oversold the room. The question that exposed it was not "how do I price this?" but "what physically limits this?" — 28 seats, not 28 transactions.
+3. **A plausible wrong number is worse than an obvious error.** "0 of 14 places taken" looked entirely reasonable on a live booking page. Only checking it against known stock values revealed it. Test the states, not just that the code runs.
+4. **Idempotent scripts need care about which fields they own.** The bootstrap declares capacity and price; the live system owns remaining stock. Getting that boundary wrong either wipes sales data or lets configuration drift.
+
+---
+
 ## Incident #26 — MariaDB rollout deadlock: `RollingUpdate` against a ReadWriteOnce PVC
 
 **Symptom:** After the Phase 2 memory increase, WordPress rolled out cleanly but MariaDB did not:
