@@ -105,6 +105,36 @@ spec:
                 secretKeyRef:
                   name: wordpress-secrets
                   key: mariadb-password
+            # SMTP must be mirrored here, not just on the wordpress deployment.
+            # The theme (and therefore the phpmailer_init hook) is shared, but
+            # without credentials in THIS pod the hook returns early and wp_mail
+            # silently falls back to PHP mail() - which fails with
+            # "Could not instantiate mail function" because no MTA exists in the
+            # container. Production order emails are sent by the web pod, so this
+            # matters for CLI-triggered mail and for testing delivery at all.
+            #
+            # Same rule as the theme mount: whatever the web pod reads to serve
+            # the site, the CLI pod needs to administer it.
+            - name: SMTP_HOST
+              value: "smtp-relay.brevo.com"
+            - name: SMTP_PORT
+              value: "587"
+            - name: SMTP_FROM
+              value: "holidaycamp@lennardjohn.org"
+            - name: SMTP_FROM_NAME
+              value: "Lennard V. John"
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secrets
+                  key: smtp-user
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secrets
+                  key: smtp-pass
+                  optional: true
             # WORDPRESS_CONFIG_EXTRA is deliberately NOT set here. wp-config.php
             # eval()s it at runtime, so setting it would make WP_HOME/WP_SITEURL
             # override the database values - and WP-CLI would then report the
