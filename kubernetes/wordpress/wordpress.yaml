@@ -123,7 +123,7 @@ spec:
             - name: SMTP_PORT
               value: "587"
             - name: SMTP_FROM
-              value: "noreply@lennardjohn.org"
+              value: "holidaycamp@lennardjohn.org"
             - name: SMTP_FROM_NAME
               value: "Lennard V. John"
             - name: SMTP_USER
