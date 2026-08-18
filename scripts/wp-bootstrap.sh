@@ -127,7 +127,17 @@ if wp plugin is-active woocommerce 2>/dev/null; then
   # them on the page wondering whether it worked.
   wp option update woocommerce_cart_redirect_after_add "yes" >/dev/null
 
-  echo "  configured (NZD, guest checkout, stock management, no shipping/tax)"
+  # Order emails. WooCommerce sets its own From via the same wp_mail_from filter
+  # the theme uses, so these are set to match rather than left to fight over it.
+  # The address must be the Brevo-authenticated sender or the relay rejects it.
+  wp option update woocommerce_email_from_name "Lennard V. John" >/dev/null
+  wp option update woocommerce_email_from_address "holidaycamp@lennardjohn.org" >/dev/null
+  wp option update woocommerce_email_base_color "#4ade80" >/dev/null
+  wp option update woocommerce_email_background_color "#0d1117" >/dev/null
+  wp option update woocommerce_email_body_background_color "#161b22" >/dev/null
+  wp option update woocommerce_email_text_color "#c9d1d9" >/dev/null
+
+  echo "  configured (NZD, guest checkout, stock management, no shipping/tax, branded email)"
 
   # --- camp classes as products ----------------------------------------------
   # Upserted by SKU so re-running updates rather than duplicating.

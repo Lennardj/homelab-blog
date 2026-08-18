@@ -524,6 +524,51 @@ Verified: subtotal 280, fee −80, total **200.00**.
 
 **`sold_individually` means one child per order.** A parent booking two children places two orders. That is deliberate — it keeps child details cleanly mapped to an order, and stops one booking consuming a whole class.
 
+#### Transactional email (Brevo SMTP) ✅ working
+
+Booking confirmations and receipts route through Brevo. PHP `mail()` from a residential-IP homelab has effectively no chance of passing SPF/DKIM, and a parent who does not receive a receipt assumes the payment failed — **a deliverability problem presents as a broken checkout.**
+
+**Credentials live in the `smtp-secrets` Kubernetes Secret**, created manually on the cluster and never committed, never pasted into chat, never in the database. An SMTP plugin configured through wp-admin would store the password in `wp_options` — and therefore in plaintext in every nightly backup.
+
+```bash
+kubectl create secret generic smtp-secrets -n wordpress \
+  --from-literal=smtp-user='<brevo smtp login>' \
+  --from-literal=smtp-pass='<brevo smtp key>'
+```
+
+Wiring is a `phpmailer_init` hook in the theme reading env vars. Sender: `holidaycamp@lennardjohn.org` (branded domain authenticated in Brevo).
+
+> ⚠️ **`optional: true` on both `secretKeyRef`s is essential.** Without it the pod refuses to start until the Secret exists, so deploying the manifest first would take the whole site down. Missing credentials instead fall through to `mail()` — degraded delivery, not an outage.
+
+> ⚠️ **SMTP env must be on BOTH the `wordpress` and `wpcli` deployments.** The theme (and the hook) is shared, but a pod without credentials returns early and silently falls back to `mail()`. Same rule as the theme mount: whatever the web pod reads to serve the site, the CLI pod needs to administer it.
+
+#### DNS state
+
+| Record | Status |
+|---|---|
+| `brevo-code:…` verification TXT | ✅ |
+| DKIM `brevo1._domainkey` → `b1.lennardjohn-org.dkim.brevo.com` | ✅ |
+| DKIM `brevo2._domainkey` → `b2…` | ✅ |
+| DMARC `v=DMARC1; p=none; rua=…brevo.com` | ✅ |
+| SPF | ⚠️ `v=spf1 include:_spf.mx.cloudflare.net ~all` — **Brevo not included** |
+
+DMARC passes on SPF *or* DKIM alignment, and DKIM is on the site's own domain, so mail authenticates. Adding `include:spf.brevo.com` would still improve deliverability.
+
+#### Incident: `525 5.7.1 Unauthorized IP address`
+
+Authentication failed with PHPMailer reporting `SMTP Error: Could not authenticate` — which strongly implies bad credentials. It was not. Credential checks all passed: 24-char login ending `@smtp-brevo.com`, 90-char key starting `xsmtpsib-`, no stray whitespace.
+
+Enabling `SMTPDebug = 2` to capture the raw SMTP conversation gave the real answer:
+
+```
+CLIENT -> SERVER: AUTH CRAM-MD5
+SERVER -> CLIENT: 525 5.7.1 Unauthorized IP address
+```
+
+Brevo's **IP authorisation** feature was rejecting the cluster's egress IP (`116.251.171.15`) *before* evaluating the key. Resolved by disabling IP authorisation rather than allowlisting, deliberately: the egress IP is residential and can change on any reboot or ISP event, and when it did, booking confirmations would stop sending **silently**. A 90-character key is strong authentication on its own; an allowlist that breaks unpredictably is a worse trade.
+
+**Lesson:** the client library's error message described the wrong failure. `SMTPDebug` showing the server's actual response is what solved it — otherwise the obvious next step (regenerating keys) would have been wasted effort against a problem that had nothing to do with keys.
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time
