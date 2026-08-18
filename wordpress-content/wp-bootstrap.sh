@@ -128,6 +128,78 @@ if wp plugin is-active woocommerce 2>/dev/null; then
   wp option update woocommerce_cart_redirect_after_add "yes" >/dev/null
 
   echo "  configured (NZD, guest checkout, stock management, no shipping/tax)"
+
+  # --- camp classes as products ----------------------------------------------
+  # Upserted by SKU so re-running updates rather than duplicating.
+  #
+  # STOCK IS THE CAPACITY. manage_stock + stock_quantity gives a hard cap that
+  # WooCommerce enforces at checkout, including the race when two parents buy
+  # the last place simultaneously. backorders=no is what makes it a hard stop
+  # rather than a warning.
+  #
+  # sold_individually stops one parent taking the whole class in a single order.
+  # virtual=true means no shipping fields anywhere in checkout.
+  #
+  # !! PLACEHOLDER DATES, TIMES AND PRICES !! - replace with the real schedule.
+  # Products stay in `draft` until then, so nothing is publicly bookable while
+  # the details are still invented.
+  WC_ADMIN="${WC_ADMIN:-1}"
+
+  # No price is set deliberately. WooCommerce refuses to sell a product with no
+  # price, so an unpriced product cannot be booked even if it is published by
+  # accident. That is a far safer placeholder than 0.00, which would silently
+  # give places away for free.
+  upsert_class() {
+    sku="$1"; name="$2"; places="$3"; desc="$4"; short="$5"
+
+    id=$(wp wc product list --sku="$sku" --field=id --user="$WC_ADMIN" 2>/dev/null | head -n1)
+
+    if [ -z "$id" ]; then
+      id=$(wp wc product create \
+        --user="$WC_ADMIN" \
+        --name="$name" \
+        --sku="$sku" \
+        --type=simple \
+        --status=draft \
+        --virtual=true \
+        --manage_stock=true \
+        --stock_quantity="$places" \
+        --backorders=no \
+        --sold_individually=true \
+        --description="$desc" \
+        --short_description="$short" \
+        --porcelain 2>/dev/null)
+      echo "  created  $sku (#$id, $places places, draft, unpriced)"
+    else
+      # stock_quantity is deliberately NOT updated here. Once bookings exist,
+      # resetting it would wipe the record of how many places have sold.
+      wp wc product update "$id" \
+        --user="$WC_ADMIN" \
+        --name="$name" \
+        --manage_stock=true \
+        --backorders=no \
+        --sold_individually=true \
+        --description="$desc" \
+        --short_description="$short" >/dev/null 2>&1
+      echo "  updated  $sku (#$id)  [stock and price left as-is]"
+    fi
+  }
+
+  echo "== camp classes =="
+  upsert_class "camp-a-morning" \
+    "Tech Camp - Class A (Morning)" "28" \
+    "Five mornings of hands-on technology. PLACEHOLDER schedule - dates and price to be confirmed." \
+    "Mornings - dates TBC"
+
+  upsert_class "camp-b-afternoon" \
+    "Tech Camp - Class B (Afternoon)" "28" \
+    "Five afternoons of hands-on technology. PLACEHOLDER schedule - dates and price to be confirmed." \
+    "Afternoons - dates TBC"
+
+  upsert_class "camp-c-morning" \
+    "Tech Camp - Class C (Morning)" "28" \
+    "Five mornings of hands-on technology. PLACEHOLDER schedule - dates and price to be confirmed." \
+    "Mornings - dates TBC"
 fi
 
 # --- pages -------------------------------------------------------------------
