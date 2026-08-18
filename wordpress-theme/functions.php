@@ -512,3 +512,120 @@ add_action(
         );
     }
 );
+
+/**
+ * Camp booking checkout fields.
+ *
+ * WooCommerce 11 installs the BLOCK checkout (wp:woocommerce/checkout), not the
+ * classic shortcode. The widely-documented `woocommerce_checkout_fields` filter
+ * does nothing there - it applies only to the classic checkout, so following the
+ * usual tutorials produces code that runs without error and renders no fields.
+ * Block checkout requires the Additional Checkout Fields API, added in
+ * WooCommerce 8.9, which handles persistence, admin display and emails for us.
+ *
+ * Because `sold_individually` limits an order to one place per session, one
+ * order corresponds to one student - so these belong at `order` level rather
+ * than per line item.
+ *
+ * Medical and dietary information is deliberately NOT collected here. It is
+ * sensitive data about minors and would live in the orders table, and therefore
+ * in every nightly backup. It is gathered separately closer to the camp date.
+ */
+add_action(
+	'woocommerce_init',
+	static function (): void {
+		if ( ! function_exists( 'woocommerce_register_additional_checkout_field' ) ) {
+			return;
+		}
+
+		woocommerce_register_additional_checkout_field(
+			array(
+				'id'         => 'lj/student-name',
+				'label'      => 'Student full name',
+				'location'   => 'order',
+				'type'       => 'text',
+				'required'   => true,
+				'attributes' => array(
+					'autocomplete' => 'off',
+				),
+			)
+		);
+
+		woocommerce_register_additional_checkout_field(
+			array(
+				'id'       => 'lj/student-year',
+				'label'    => 'Year level',
+				'location' => 'order',
+				'type'     => 'select',
+				'required' => true,
+				'options'  => array(
+					array(
+						'value' => 'year-7',
+						'label' => 'Year 7',
+					),
+					array(
+						'value' => 'year-8',
+						'label' => 'Year 8',
+					),
+					array(
+						'value' => 'year-9',
+						'label' => 'Year 9',
+					),
+					array(
+						'value' => 'year-10',
+						'label' => 'Year 10',
+					),
+				),
+			)
+		);
+
+		woocommerce_register_additional_checkout_field(
+			array(
+				'id'       => 'lj/emergency-name',
+				'label'    => 'Emergency contact name',
+				'location' => 'order',
+				'type'     => 'text',
+				'required' => true,
+			)
+		);
+
+		woocommerce_register_additional_checkout_field(
+			array(
+				'id'       => 'lj/emergency-phone',
+				'label'    => 'Emergency contact phone',
+				'location' => 'order',
+				'type'     => 'text',
+				'required' => true,
+			)
+		);
+	}
+);
+
+/**
+ * Reject an emergency phone number that contains no digits.
+ *
+ * The field is required, so it cannot be empty - but "n/a" would satisfy that
+ * and leave nobody reachable if a child is hurt. This is the one field where a
+ * present-but-useless value has real consequences.
+ */
+add_action(
+	'woocommerce_validate_additional_field',
+	static function ( $errors, $field_key, $field_value ) {
+		if ( 'lj/emergency-phone' !== $field_key ) {
+			return $errors;
+		}
+
+		$digits = preg_replace( '/\D/', '', (string) $field_value );
+
+		if ( strlen( (string) $digits ) < 7 ) {
+			$errors->add(
+				'lj_emergency_phone_invalid',
+				'Please enter a contactable emergency phone number.'
+			);
+		}
+
+		return $errors;
+	},
+	10,
+	3
+);
