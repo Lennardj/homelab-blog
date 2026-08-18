@@ -497,6 +497,33 @@ When full the booking button is *replaced*, not disabled, so a parent has somewh
 
 Verified across the full range: `28→0/28/0%`, `14→14/28/50%`, `7→21/28/75% amber`, `3→25/28/89%`, `0→28/28/100% red + email link`.
 
+#### The camp, as configured
+
+**AI camp for Year 7–10**, Rosmini College, 36 Dominion Street, Takapuna. Week one of the September–October 2026 holidays: **Mon 28 Sep – Fri 2 Oct**. Morning 9:30–12:30, afternoon 1:30–4:30. 28 places per session. Full refund if cancelled at least a week before.
+
+| SKU | Session | Price | Status |
+|---|---|---|---|
+| `camp-morning` | Mon–Fri 9:30–12:30 | $140 | draft |
+| `camp-afternoon` | Mon–Fri 1:30–4:30 | $140 | draft |
+| `camp-morning-2` | overflow class | $140 | draft |
+| `camp-afternoon-2` | overflow class | $140 | draft |
+
+Overflow classes are built but stay draft. When a session fills, **publish** the matching `-2` product and the capacity UI picks it up with no code change. Week two (5–9 Oct) is the other expansion route.
+
+#### Full day: a cart discount, not a bundle product
+
+A full day is **$200** against $140 + $140 = $280.
+
+> **Why not a "full day" SKU?** It would carry its own stock, and nothing would prevent 28 morning + 28 full-day bookings putting 56 children in a room built for 28. WooCommerce cannot share stock between products, and Product Bundles is a paid extension.
+
+Selling the two real sessions keeps every capacity count honest; `woocommerce_cart_calculate_fees` applies an $80 negative fee when a cart holds both a morning and an afternoon session. The discount is **derived** (`morning + afternoon − full_day_price`), not hardcoded, so changing the session price keeps the maths correct.
+
+`?lj_full_day=primary` adds both sessions in one click, because WooCommerce's `?add-to-cart=` accepts only one product. The offer renders only when both halves are genuinely bookable — advertising a saving a parent cannot take is worse than not mentioning it.
+
+Verified: subtotal 280, fee −80, total **200.00**.
+
+**`sold_individually` means one child per order.** A parent booking two children places two orders. That is deliberate — it keeps child details cleanly mapped to an order, and stops one booking consuming a whole class.
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time
