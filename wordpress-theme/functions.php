@@ -48,6 +48,69 @@ add_action(
 );
 
 /**
+ * Route outgoing mail through SMTP.
+ *
+ * Booking confirmations and receipts must actually reach parents. PHP's mail()
+ * from a residential-IP homelab has effectively no chance of passing SPF/DKIM
+ * checks, so receipts land in spam - and a parent who does not receive a receipt
+ * assumes the payment failed, rebooks, or asks for a refund while their place is
+ * already reserved. A deliverability problem presents as a broken checkout.
+ *
+ * Credentials come from environment variables backed by the `smtp-secrets`
+ * Kubernetes Secret, never from the database. An SMTP plugin configured through
+ * wp-admin would store the password in wp_options, putting it in plaintext in
+ * every nightly backup.
+ *
+ * If the credentials are absent this does nothing and WordPress falls back to
+ * mail(), so a missing Secret degrades delivery rather than breaking the site.
+ */
+add_action(
+    'phpmailer_init',
+    static function ( $phpmailer ): void {
+        $user = getenv( 'SMTP_USER' );
+        $pass = getenv( 'SMTP_PASS' );
+
+        if ( ! is_string( $user ) || '' === $user || ! is_string( $pass ) || '' === $pass ) {
+            return;
+        }
+
+        $host = getenv( 'SMTP_HOST' ) ?: 'smtp-relay.brevo.com';
+        $port = (int) ( getenv( 'SMTP_PORT' ) ?: 587 );
+
+        $phpmailer->isSMTP();
+        $phpmailer->Host       = $host;
+        $phpmailer->Port       = $port;
+        $phpmailer->SMTPAuth   = true;
+        $phpmailer->Username   = $user;
+        $phpmailer->Password   = $pass;
+        // 587 is the submission port, which uses STARTTLS. 465 would be implicit
+        // TLS - getting this wrong causes a silent connection hang, not an error.
+        $phpmailer->SMTPSecure = ( 465 === $port ) ? 'ssl' : 'tls';
+    }
+);
+
+/**
+ * The From address must be on an authenticated domain or the provider will
+ * reject the message. WordPress otherwise sends as wordpress@<server-hostname>,
+ * which fails SPF and DMARC immediately.
+ */
+add_filter(
+    'wp_mail_from',
+    static function ( string $from ): string {
+        $configured = getenv( 'SMTP_FROM' );
+        return ( is_string( $configured ) && '' !== $configured ) ? $configured : $from;
+    }
+);
+
+add_filter(
+    'wp_mail_from_name',
+    static function ( string $name ): string {
+        $configured = getenv( 'SMTP_FROM_NAME' );
+        return ( is_string( $configured ) && '' !== $configured ) ? $configured : $name;
+    }
+);
+
+/**
  * Tech camp SKUs, grouped by session.
  *
  * The "-2" entries are overflow classes that run alongside the first when it

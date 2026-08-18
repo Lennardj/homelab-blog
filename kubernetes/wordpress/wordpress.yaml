@@ -107,6 +107,37 @@ spec:
             # for the client. The alternative fix - setting use-forwarded-headers
             # in the ingress-nginx ConfigMap - is cluster-wide and would also
             # affect Grafana and Argo CD, so it is deliberately not used.
+            # --- transactional email (Brevo SMTP) ---
+            # Credentials come from the `smtp-secrets` Secret, created manually
+            # on the cluster and never committed. The alternative - an SMTP
+            # plugin configured through wp-admin - stores the password in the
+            # WordPress database, which means it lands in every nightly backup
+            # in plaintext.
+            #
+            # optional: true on the secret refs is deliberate: without it the pod
+            # will not start until the Secret exists, so deploying this manifest
+            # before creating the Secret would take the whole site down. Missing
+            # credentials instead fall through to PHP mail() - see functions.php.
+            - name: SMTP_HOST
+              value: "smtp-relay.brevo.com"
+            - name: SMTP_PORT
+              value: "587"
+            - name: SMTP_FROM
+              value: "noreply@lennardjohn.org"
+            - name: SMTP_FROM_NAME
+              value: "Lennard V. John"
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secrets
+                  key: smtp-user
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secrets
+                  key: smtp-pass
+                  optional: true
             - name: WORDPRESS_CONFIG_EXTRA
               value: |
                 define('WP_HOME','https://lennardjohn.org');
