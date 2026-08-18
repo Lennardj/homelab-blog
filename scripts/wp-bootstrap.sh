@@ -60,7 +60,7 @@ fi
 # so pages stay readable block markup rather than becoming opaque builder JSON.
 # That is the same property that ruled out Elementor.
 echo "== plugins =="
-for plugin in kadence-blocks; do
+for plugin in kadence-blocks woocommerce; do
   if wp plugin is-installed "$plugin" 2>/dev/null; then
     if [ "$(wp plugin get "$plugin" --field=status)" != "active" ]; then
       wp plugin activate "$plugin"
@@ -75,6 +75,60 @@ done
 # Deactivate anything not declared above and not deliberately kept.
 # ai-provider-for-anthropic is left alone - it is an official WordPress AI Team
 # provider shim, inert without an API key, and its removal is the owner's call.
+
+# --- woocommerce settings ----------------------------------------------------
+# Tech camp places are sold as WooCommerce products with stock management, where
+# STOCK IS THE CAPACITY CAP. That is not a workaround - it is exactly what stock
+# management does, and it means WooCommerce handles the race condition when two
+# parents try to buy the last place at the same moment. No events plugin and no
+# licence needed.
+#
+# Every value here is set explicitly rather than left to the setup wizard, so a
+# rebuilt site behaves identically instead of depending on someone clicking
+# through onboarding the same way twice.
+if wp plugin is-active woocommerce 2>/dev/null; then
+  echo "== woocommerce settings =="
+
+  wp option update woocommerce_store_country "NZ:*" >/dev/null
+  wp option update woocommerce_currency "NZD" >/dev/null
+  wp option update woocommerce_currency_pos "left" >/dev/null
+  wp option update woocommerce_price_thousand_sep "," >/dev/null
+  wp option update woocommerce_price_decimal_sep "." >/dev/null
+  wp option update woocommerce_price_num_decimals "2" >/dev/null
+
+  # Parents are booking a place, not opening an account. Forcing registration at
+  # checkout is the single biggest cause of abandoned bookings.
+  wp option update woocommerce_enable_guest_checkout "yes" >/dev/null
+  wp option update woocommerce_enable_checkout_login_reminder "no" >/dev/null
+  wp option update woocommerce_enable_signup_and_login_from_checkout "no" >/dev/null
+
+  # Stock is the capacity mechanism, so it must be on globally.
+  wp option update woocommerce_manage_stock "yes" >/dev/null
+  # Unpaid orders release their place after 60 minutes. Without this a abandoned
+  # checkout holds a seat indefinitely and the class shows full when it is not.
+  wp option update woocommerce_hold_stock_minutes "60" >/dev/null
+  wp option update woocommerce_notify_low_stock "yes" >/dev/null
+  wp option update woocommerce_notify_low_stock_amount "5" >/dev/null
+  wp option update woocommerce_hide_out_of_stock_items "no" >/dev/null
+
+  # No physical goods: nothing ships, nothing weighs anything.
+  wp option update woocommerce_ship_to_countries "disabled" >/dev/null
+  wp option update woocommerce_enable_shipping_calc "no" >/dev/null
+  wp option update woocommerce_calc_shipping "no" >/dev/null
+
+  # Reviews on a children's camp booking are not wanted.
+  wp option update woocommerce_enable_reviews "no" >/dev/null
+
+  # Taxes left OFF deliberately. Whether GST applies depends on registration
+  # status - that is the owner's decision, not a default to guess at.
+  wp option update woocommerce_calc_taxes "no" >/dev/null
+
+  # Send parents straight to the cart after adding a place, rather than leaving
+  # them on the page wondering whether it worked.
+  wp option update woocommerce_cart_redirect_after_add "yes" >/dev/null
+
+  echo "  configured (NZD, guest checkout, stock management, no shipping/tax)"
+fi
 
 # --- pages -------------------------------------------------------------------
 # Upsert by slug. `wp post create` would happily create a fifth page called
