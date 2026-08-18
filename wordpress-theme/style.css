@@ -401,6 +401,59 @@ p.lj-badge-row {
 }
 
 /* ---------------------------------------------------------------------
+   Curriculum table. Wide tables are the classic cause of horizontal page
+   scroll on phones, so the table scrolls inside its own container instead.
+   --------------------------------------------------------------------- */
+.lj-curriculum {
+  overflow-x: auto;
+  margin: 2rem 0;
+}
+
+.lj-curriculum table {
+  border-collapse: collapse;
+  min-width: 34rem;
+}
+
+.lj-curriculum th {
+  font-family: var(--wp--preset--font-family--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--wp--preset--color--accent-5);
+  text-align: left;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--wp--preset--color--accent-4);
+}
+
+.lj-curriculum td {
+  padding: 0.85rem 0.9rem;
+  border-bottom: 1px solid var(--wp--preset--color--accent-4);
+  font-size: 0.92rem;
+  vertical-align: top;
+}
+
+.lj-curriculum tbody tr:hover {
+  background: var(--wp--preset--color--accent-3);
+}
+
+/* Day number column - mono and accented, so the week reads as a sequence. */
+.lj-curriculum td:first-child {
+  font-family: var(--wp--preset--font-family--mono);
+  color: var(--wp--preset--color--accent-1);
+  width: 3rem;
+}
+
+/* Project column carries the payoff for a parent skim-reading. */
+.lj-curriculum td:last-child {
+  color: var(--wp--preset--color--contrast);
+}
+
+.lj-curriculum td:nth-child(3) {
+  color: var(--wp--preset--color--accent-2);
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------------
    Tech camp classes and capacity bars.
    Rendered by the [lj_camp_classes] shortcode. The three states map to real
    stock levels, not decoration: open, filling (>=75% taken), and full.

@@ -195,21 +195,44 @@ if wp plugin is-active woocommerce 2>/dev/null; then
     wp post meta update "$id" _lj_capacity "$places" >/dev/null
   }
 
-  echo "== camp classes =="
-  upsert_class "camp-a-morning" \
-    "Tech Camp - Class A (Morning)" "28" \
-    "Five mornings of hands-on technology. PLACEHOLDER schedule - dates and price to be confirmed." \
-    "Mornings - dates TBC"
+  # One class, two daily sessions. The overflow classes exist so a second group
+  # can run alongside the first if it fills - they stay draft (invisible to the
+  # public) until published, at which point the capacity UI picks them up with
+  # no code change.
+  #
+  # DATES ARE STILL TBC - the holiday spans two full Mon-Fri weeks
+  # (28 Sep - 2 Oct, and 5 - 9 Oct 2026) and the week has not been chosen yet.
+  # Products remain draft and unpriced until it is.
+  echo "== camp sessions =="
+  upsert_class "camp-morning" \
+    "AI Camp - Morning Session" "28" \
+    "Five days of hands-on AI, Monday to Friday, 9:30am to 12:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
+    "Mon-Fri, 9:30am - 12:30pm"
 
-  upsert_class "camp-b-afternoon" \
-    "Tech Camp - Class B (Afternoon)" "28" \
-    "Five afternoons of hands-on technology. PLACEHOLDER schedule - dates and price to be confirmed." \
-    "Afternoons - dates TBC"
+  upsert_class "camp-afternoon" \
+    "AI Camp - Afternoon Session" "28" \
+    "Five days of hands-on AI, Monday to Friday, 1:30pm to 4:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
+    "Mon-Fri, 1:30pm - 4:30pm"
 
-  upsert_class "camp-c-morning" \
-    "Tech Camp - Class C (Morning)" "28" \
-    "Five mornings of hands-on technology. PLACEHOLDER schedule - dates and price to be confirmed." \
-    "Mornings - dates TBC"
+  upsert_class "camp-morning-2" \
+    "AI Camp - Morning Session (Second Class)" "28" \
+    "A second morning class running alongside the first. Five days of hands-on AI, Monday to Friday, 9:30am to 12:30pm at Rosmini College, Takapuna." \
+    "Mon-Fri, 9:30am - 12:30pm"
+
+  upsert_class "camp-afternoon-2" \
+    "AI Camp - Afternoon Session (Second Class)" "28" \
+    "A second afternoon class running alongside the first. Five days of hands-on AI, Monday to Friday, 1:30pm to 4:30pm at Rosmini College, Takapuna." \
+    "Mon-Fri, 1:30pm - 4:30pm"
+
+  # Retire the original placeholder SKUs. Safe: they were never published, never
+  # priced and never bookable, so no order can reference them.
+  for old_sku in camp-a-morning camp-b-afternoon camp-c-morning; do
+    old_id=$(wp wc product list --sku="$old_sku" --field=id --user="$WC_ADMIN" 2>/dev/null | head -n1)
+    if [ -n "$old_id" ]; then
+      wp post delete "$old_id" --force >/dev/null 2>&1
+      echo "  deleted  $old_sku (#$old_id, placeholder)"
+    fi
+  done
 fi
 
 # --- pages -------------------------------------------------------------------

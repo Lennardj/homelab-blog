@@ -72,7 +72,10 @@ add_shortcode(
 
         $atts = shortcode_atts(
             array(
-                'skus'  => 'camp-a-morning,camp-b-afternoon,camp-c-morning',
+                // Overflow classes are listed here too. They are draft until a
+                // second group is needed, and draft products are skipped below,
+                // so publishing one is all it takes to open it for booking.
+                'skus'  => 'camp-morning,camp-afternoon,camp-morning-2,camp-afternoon-2',
                 'email' => get_option( 'admin_email' ),
             ),
             $atts,
