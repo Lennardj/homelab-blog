@@ -115,6 +115,49 @@ spec:
             #
             # Same rule as the theme mount: whatever the web pod reads to serve
             # the site, the CLI pod needs to administer it.
+            # --- Stripe API keys ---
+            # Read by an option_woocommerce_stripe_settings filter in the theme,
+            # so keys never enter wp_options and therefore never enter a backup.
+            # Same reasoning as the SMTP credentials above.
+            #
+            # optional: true so a missing Secret falls back to whatever is stored
+            # rather than preventing the pod from starting.
+            - name: STRIPE_TEST_PUBLISHABLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secrets
+                  key: test-publishable-key
+                  optional: true
+            - name: STRIPE_TEST_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secrets
+                  key: test-secret-key
+                  optional: true
+            - name: STRIPE_LIVE_PUBLISHABLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secrets
+                  key: live-publishable-key
+                  optional: true
+            - name: STRIPE_LIVE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secrets
+                  key: live-secret-key
+                  optional: true
+            - name: STRIPE_TEST_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secrets
+                  key: test-webhook-secret
+                  optional: true
+            - name: STRIPE_LIVE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secrets
+                  key: live-webhook-secret
+                  optional: true
             - name: SMTP_HOST
               value: "smtp-relay.brevo.com"
             - name: SMTP_PORT

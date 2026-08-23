@@ -629,3 +629,50 @@ add_action(
 	10,
 	3
 );
+
+/**
+ * Supply Stripe API keys from the environment instead of the database.
+ *
+ * The WooCommerce Stripe plugin stores its keys in the `woocommerce_stripe_settings`
+ * option, which means a LIVE SECRET KEY sits in wp_options - and therefore in
+ * every nightly backup, in plaintext. That is the exact exposure the SMTP
+ * credentials were deliberately kept out of the database to avoid.
+ *
+ * The plugin has no native environment-variable support, so the settings are
+ * filtered on read and any key present in the environment overrides the stored
+ * one. Keys then live only in the `stripe-secrets` Kubernetes Secret.
+ *
+ * Anything absent from the environment falls through to whatever is stored, so
+ * a missing Secret degrades to the previous behaviour rather than breaking
+ * checkout outright.
+ *
+ * SWITCHING TEST -> LIVE: set testmode to "no" in WooCommerce settings. The live
+ * keys are read from STRIPE_LIVE_* and never need to be pasted into wp-admin.
+ */
+add_filter(
+	'option_woocommerce_stripe_settings',
+	static function ( $value ) {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		$map = array(
+			'test_publishable_key' => 'STRIPE_TEST_PUBLISHABLE_KEY',
+			'test_secret_key'      => 'STRIPE_TEST_SECRET_KEY',
+			'test_webhook_secret'  => 'STRIPE_TEST_WEBHOOK_SECRET',
+			'publishable_key'      => 'STRIPE_LIVE_PUBLISHABLE_KEY',
+			'secret_key'           => 'STRIPE_LIVE_SECRET_KEY',
+			'webhook_secret'       => 'STRIPE_LIVE_WEBHOOK_SECRET',
+		);
+
+		foreach ( $map as $setting => $env_var ) {
+			$env_value = getenv( $env_var );
+
+			if ( is_string( $env_value ) && '' !== $env_value ) {
+				$value[ $setting ] = $env_value;
+			}
+		}
+
+		return $value;
+	}
+);
