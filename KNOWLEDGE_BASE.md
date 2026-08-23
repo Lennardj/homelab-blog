@@ -626,6 +626,34 @@ Test card `pm_card_visa` via `WC_Stripe_API`. All test orders deleted and stock 
 > ```
 > **On-hold and processing orders reduce stock.** Abandoned test orders quietly consume capacity, which on a capped camp reads as places sold that were never sold.
 
+#### Legal pages
+
+`privacy-policy` (#92) and `refund_returns` (#93) are version-controlled in `wordpress-content/` like every other page, so what is published is reviewable in Git rather than typed into wp-admin. Both are wired up:
+
+- `wp_page_for_privacy_policy` -> 92, so the Privacy Policy link resolves in WooCommerce checkout
+- `woocommerce_refund_returns_page_id` -> 93
+- `woocommerce_checkout_privacy_policy_text` shows a short notice under the checkout button
+
+The policy describes what the site **actually** does, verified against the install rather than copied from a template: no analytics or tracking plugins (only Kadence Blocks, WooCommerce and Stripe are active), card data never touches the server, shipping disabled, phone optional. Processors named: Stripe, Brevo, Cloudflare.
+
+Retention is deliberately split - student and emergency-contact details deleted within three months of the camp; payment records kept seven years for NZ tax.
+
+> This is a factual description of the system written by a non-lawyer. It should be reviewed by someone qualified before real bookings open, particularly the sections on children's data.
+
+> ⚠️ **WordPress and WooCommerce pre-create stub pages** at `privacy-policy` and `refund_returns` as drafts. Those stubs hold the slugs, so creating new pages with the same slug yields `privacy-policy-2`. The stubs were deleted and the canonical slugs reclaimed.
+
+#### Shell scripts must be LF, not CRLF
+
+`scripts/*.sh` run inside **BusyBox `sh`** in the `wpcli` pod. BusyBox cannot parse CRLF: a carriage return on `set -eu` becomes `set: illegal option -` and the script dies on the first line.
+
+Git Bash on Windows parses CRLF fine, so `sh -n` passes locally and the breakage appears only in the cluster - where it presents as a script that produces no output and exits non-zero.
+
+`.gitattributes` now forces `*.sh text eol=lf`. When editing these scripts with a tool that rewrites the whole file, check:
+```bash
+file scripts/wp-bootstrap.sh          # must not say CRLF
+kubectl exec -n wordpress deploy/wpcli -- sh -n /tmp/content/wp-bootstrap.sh
+```
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time

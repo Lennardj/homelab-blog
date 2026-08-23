@@ -2104,6 +2104,59 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #31 — CRLF line endings broke the bootstrap under BusyBox, and local validation passed
+
+**Symptom:** After patching `wp-bootstrap.sh` with a Python script, every run inside the pod produced no output and exited non-zero. Because the script prints its progress, "no output" looked like "the section did not run" rather than "nothing ran at all" - and the surrounding checks (pages present, options correct) still passed, because they reflected state from an *earlier*, successful run.
+
+That produced a false verification: a re-run was interpreted as proof that an idempotency fix worked, when in fact the script had never executed.
+
+**Diagnostic:**
+
+```
+kubectl exec ... -- sh /tmp/content/wp-bootstrap.sh
+/tmp/content/wp-bootstrap.sh: set: line 30: illegal option -
+
+kubectl exec ... -- sh -n /tmp/content/wp-bootstrap.sh
+line 63: syntax error: unexpected word (expecting "do")
+
+kubectl exec ... -- ls -l /bin/sh
+/bin/sh -> /bin/busybox
+```
+
+`set: illegal option -` on a line reading `set -eu` is the signature: the shell is seeing `set -eu\r` and treating the carriage return as part of the option.
+
+**Root cause:** the patch was applied with a Python script using `io.open(path, 'w')`. On Windows that enables newline translation, rewriting every `\n` as `\r\n`. The whole file became CRLF.
+
+BusyBox `sh` - which is what the `wordpress:cli` image provides - does not tolerate CRLF. **Git Bash on Windows does**, so `sh -n scripts/wp-bootstrap.sh` passed locally and reported the file as valid. The validation step and the execution environment disagreed, and the validation was the one that was wrong.
+
+**Fix:**
+
+```bash
+sed -i 's/\r$//' scripts/wp-bootstrap.sh
+```
+
+and a `.gitattributes` entry so it cannot recur regardless of editor or platform:
+
+```
+*.sh text eol=lf
+```
+
+Verified afterwards in the environment that actually runs it:
+
+```
+kubectl exec ... -- sh -n /tmp/content/wp-bootstrap.sh   # PARSES OK
+exit code: 0, all 12 sections ran
+```
+
+**Interview talking points:**
+
+1. **Validate in the environment that executes, not the one that edits.** `sh -n` locally and `sh -n` in the pod are different shells with different tolerances. A syntax check that passes on the developer machine proves nothing about a BusyBox container.
+2. **Cross-platform line endings are still a live hazard in 2026.** The failure mode is not a warning - it is a shell refusing to parse its own first line, and the error message (`illegal option -`) names neither line endings nor the real cause.
+3. **Beware verifying the wrong thing.** The check used was "are there duplicate pages?" - and the answer was correctly "no", because the script that would have created them never ran. A test can pass for a reason that has nothing to do with the fix under test. Confirming the script *executed* had to come before confirming what it did.
+4. **Tools that rewrite whole files carry platform defaults.** `io.open(..., 'w')` doing newline translation is documented, easily forgotten, and silently corrupts anything destined for a Unix interpreter. Specify `newline='\n'` or post-process.
+
+---
+
 ## Incident #30 — `wp_delete_post()` silently fails on WooCommerce orders (HPOS)
 
 **Symptom:** An end-to-end test booking reported `stock before: 26` on a class configured with 28 places. Two places had been consumed with no booking anyone had made deliberately.
