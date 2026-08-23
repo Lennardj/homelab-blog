@@ -327,6 +327,36 @@ upsert_page teaching  "Teaching"  teaching.html  education
 upsert_page tech-camp "Tech Camp" tech-camp.html education
 upsert_page resources "Resources" resources.html education
 
+
+# --- legal pages ---------------------------------------------------------
+# Privacy and refund terms must be published BEFORE taking payment. Both are
+# version-controlled like every other page rather than typed into wp-admin, so
+# what is published is reviewable in Git.
+#
+# WordPress and WooCommerce both pre-create stub pages for these. Those stubs
+# are reused by slug rather than creating duplicates, and the WordPress privacy
+# page setting is pointed at the real one so the "Privacy Policy" link in
+# WooCommerce checkout resolves.
+echo "== legal pages =="
+upsert_page privacy-policy "Privacy Policy" privacy-policy.html
+upsert_page refund_returns "Refunds and Cancellations" refunds.html
+
+PRIVACY_ID=$(wp post list --post_type=page --name=privacy-policy --post_status=any --field=ID | head -n1)
+if [ -n "$PRIVACY_ID" ]; then
+  wp option update wp_page_for_privacy_policy "$PRIVACY_ID" >/dev/null
+  echo "  wp_page_for_privacy_policy -> #$PRIVACY_ID"
+fi
+
+REFUND_ID=$(wp post list --post_type=page --name=refund_returns --post_status=any --field=ID | head -n1)
+if [ -n "$REFUND_ID" ] && wp plugin is-active woocommerce 2>/dev/null; then
+  wp option update woocommerce_refund_returns_page_id "$REFUND_ID" >/dev/null
+  # Shown under the checkout button, so the terms are visible at the moment of
+  # payment rather than buried in the footer.
+  wp option update woocommerce_checkout_privacy_policy_text \
+    "Your details are used to process your booking and to run the camp safely. See our [privacy_policy]." >/dev/null
+  echo "  woocommerce_refund_returns_page_id -> #$REFUND_ID"
+fi
+
 # Retired pages. Their content moved into the new structure; functions.php
 # 301-redirects the old URLs so existing links do not break.
 echo "== retired pages =="

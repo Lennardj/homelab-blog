@@ -1,6 +1,6 @@
 # lennardjohn.org — Platform Technical Requirements
 
-**Status:** Draft for review. Nothing here is built yet.
+**Status:** Live plan. Phases 0-3 and 5-7 complete; see status per phase in §6.
 **Date:** 2026-08-13
 **Prerequisite completed:** Phase 1 — root domain serves WordPress (commit `87befd9`)
 
@@ -159,14 +159,13 @@ This is not legal advice; for the safeguarding and privacy specifics of running 
 **Phase 4 — LMS, free courses only (R2, R5).** Tutor LMS free. Validates the whole model before spending anything.
 *Est. 1–2 days setup, plus content authoring time.*
 
-**Phase 5 — Transactional email.** SPF/DKIM/DMARC + provider. Must precede anything that emails customers.
-*Est. half day.*
+**Phase 5 — ✅ Done 2026-08-18.** Brevo SMTP, credentials in the `smtp-secrets` Kubernetes Secret (never in the database or Git). DKIM + DMARC verified; SPF still missing `include:spf.brevo.com`. Reply path added via Cloudflare Email Routing so `holidaycamp@lennardjohn.org` receives. Surfaced Incident #29 (`525 Unauthorized IP`, where the client library named the wrong failure).
 
-**Phase 6 — Payments (R3, R10).** Stripe account verification, WooCommerce, Tutor LMS Pro. Blocked on the licensing decision in §2.
-*Est. 1–2 days + Stripe verification lead time (external, can take days).*
+**Phase 6 — ✅ Done (test mode) 2026-08-23.** WooCommerce + Stripe gateway, card only. `bacs` disabled (it completes orders without payment and would hold places), Klarna disabled, WooPayments deactivated. End-to-end test booking passed: PaymentIntent succeeded, stock decremented, checkout fields persisted, both emails sent.
+*Outstanding for go-live: swap `pk_test`/`sk_test` for live keys. Tutor LMS Pro is a Phase 4 decision, not needed here.*
 
-**Phase 7 — Camp signup (R6–R9).** Trial the event plugins first and confirm capacity + waitlist behaviour before building. Highest-uncertainty phase.
-*Est. 2–4 days depending on plugin fit.*
+**Phase 7 — ✅ Done 2026-08-23.** Built on WooCommerce stock as the capacity cap rather than an events plugin — no licence, and WooCommerce resolves the race on the last place. Two sessions at 28 each plus two draft overflow classes. Capacity bar with open/filling/full states; full class replaces the booking button with an email link. Full day priced as a derived cart discount, not a bundle SKU (a bundle would carry its own stock and could oversell the room 2×). Checkout collects student name, year level and emergency contact; medical data deliberately excluded.
+*Outstanding for go-live: publish the products, and publish privacy + refund terms.*
 
 **Phase 8 — CRM (R4).** FluentCRM + Tutor LMS integration.
 *Est. 1 day.*
