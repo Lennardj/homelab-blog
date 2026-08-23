@@ -2104,6 +2104,55 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #32 — A theme filter that loaded too late: Stripe webhooks failing with `empty_secret`
+
+**Symptom:** Stripe API keys were moved out of the database into a Kubernetes Secret, supplied by a filter on `option_woocommerce_stripe_settings` registered in the child theme. Verification via WP-CLI looked perfect:
+
+```
+webhook_secret:      whsec_wKX... (from env)
+test_webhook_secret: whsec_uXl... (from env)
+DB:                  all key fields empty
+```
+
+Payments worked. Webhooks did not. Every delivery - including a correctly signed one - failed:
+
+```
+ERROR Webhook validation failed (empty_secret)
+```
+
+**Diagnostic:** HTTP status was useless here; the plugin returns `204` for both rejection and no-op, so signed and unsigned requests looked identical from outside. Enabling the plugin's own logging exposed the real reason, and reading the handler source explained it:
+
+```php
+public function __construct() {
+    $secret_key   = ( $this->testmode ? 'test_' : '' ) . 'webhook_secret';
+    $this->secret = ! empty( $stripe_settings[ $secret_key ] ) ? $stripe_settings[ $secret_key ] : false;
+    add_action( 'woocommerce_api_wc_stripe', [ $this, 'check_for_webhook' ] );
+}
+```
+
+**Root cause: WordPress load order.** The handler reads its signing secret **in the constructor**, which runs while plugins are loading. The theme's `functions.php` is parsed *after* plugins. The filter therefore did not exist yet, the constructor read the now-empty database value, cached `false`, and every subsequent signature check compared against nothing.
+
+Anything reading settings later in the request - the payment gateway itself - saw the filtered value and worked fine. That split is why the problem was invisible until webhooks specifically were exercised.
+
+**Fix:** move the filter into a must-use plugin, `wordpress-mu-plugins/lj-secrets.php`. Must-use plugins load *before* regular plugins, so the filter is registered before WooCommerce Stripe constructs anything. It is synced from Git by the same initContainer as the theme, into `wp-content/mu-plugins`.
+
+**Verification** - a signed request constructed locally rather than waiting on Stripe:
+
+```
+UNSIGNED -> 204   (rejected)
+SIGNED   -> 200   (processed)
+```
+
+**Interview talking points:**
+
+1. **Know the load order of the system you are extending.** WordPress loads must-use plugins, then plugins, then the theme. Any configuration a plugin reads during its own initialisation cannot be supplied by the theme - the theme does not exist yet. This is not a subtle framework detail; it silently decides whether your code runs at all.
+2. **Infrastructure configuration does not belong in a presentation layer.** Credentials being coupled to the active theme was wrong on principle before it was wrong in practice - switching themes would have broken payments. The bug forced the correct architecture.
+3. **Partial success is the hardest signal to read.** Payments worked while webhooks failed, from the same setting, in the same request lifecycle. "It works" was true for the code path that reads settings late and false for the one that reads them early.
+4. **When status codes cannot distinguish outcomes, get the application's own log.** `204` for both accept and reject made black-box testing worthless. The plugin's logger named the failure exactly (`empty_secret`), which pointed straight at the constructor.
+5. **Test the security control, not just the happy path.** Signing a request by hand proves the secret is actually being used. An endpoint that returns 200 to everything would have passed a naive "is the webhook reachable" check.
+
+---
+
 ## Incident #31 — CRLF line endings broke the bootstrap under BusyBox, and local validation passed
 
 **Symptom:** After patching `wp-bootstrap.sh` with a Python script, every run inside the pod produced no output and exited non-zero. Because the script prints its progress, "no output" looked like "the section did not run" rather than "nothing ran at all" - and the surrounding checks (pages present, options correct) still passed, because they reflected state from an *earlier*, successful run.

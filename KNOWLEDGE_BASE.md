@@ -692,6 +692,40 @@ Verified: database key fields empty, plugin receives keys from env, a test Payme
 
 > ⚠️ Saving the Stripe settings form in wp-admin will write whatever is displayed back into the database. Manage keys through the Secret, not the admin screen.
 
+#### Stripe webhooks
+
+Endpoint: `https://lennardjohn.org/?wc-api=wc_stripe` (from `WC_Stripe_Helper::get_webhook_url()` - the URL differs between plugin versions, so read it rather than assume).
+
+Events the 10.8.5 handler processes, read from its source rather than guessed:
+
+```
+payment_intent.succeeded            payment_intent.payment_failed
+payment_intent.processing           payment_intent.requires_action
+payment_intent.amount_capturable_updated
+charge.succeeded    charge.failed   charge.captured    charge.expired
+charge.refunded     charge.refund.updated
+charge.dispute.created              charge.dispute.closed
+review.opened       review.closed
+setup_intent.succeeded              setup_intent.setup_failed
+source.chargeable   source.canceled
+```
+
+**Why this matters on a capped class:** without a working webhook, a parent who pays and closes the browser before redirect leaves WooCommerce unaware the payment succeeded. The order stays pending, `hold_stock_minutes` releases the place after 60 minutes, and someone else books it - you hold their money and their child has no seat.
+
+Signing secrets come from the `stripe-secrets` Secret (`test-webhook-secret`, `live-webhook-secret`), never the database.
+
+**Verification technique** - construct a signed request locally rather than waiting on Stripe:
+```php
+$t = time();
+$sig = hash_hmac( 'sha256', $t . '.' . $payload, getenv( 'STRIPE_TEST_WEBHOOK_SECRET' ) );
+// header: Stripe-Signature: t=$t,v1=$sig
+```
+Verified: unsigned POST returns **204** (rejected), correctly signed POST returns **200** (processed). Note the plugin returns 204 for *both* rejection and some no-op cases, so HTTP status alone is not proof - the 200 on a signed request is.
+
+> ⚠️ **The secrets filter MUST live in a must-use plugin, not the theme.** See Incident #32. `WC_Stripe_Webhook_Handler::__construct()` reads the signing secret while plugins are loading, before `functions.php` exists, so a theme-registered filter is too late and every webhook fails with `empty_secret` - including correctly signed ones. `wordpress-mu-plugins/lj-secrets.php` is synced by the same initContainer as the theme, into `wp-content/mu-plugins`.
+
+Stripe debug logging is currently **enabled** (`logging: yes`), which writes request headers - including client IPs - to `wp-content/uploads/wc-logs/`. Useful while bedding payments in; consider disabling once live and stable.
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time
