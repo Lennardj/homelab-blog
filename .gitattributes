@@ -1,0 +1,5 @@
+# Shell scripts run inside BusyBox sh in the wpcli pod, which cannot parse CRLF.
+# A CR at the end of "set -eu" becomes an illegal option and the script dies at
+# line 1 - while Git Bash on Windows parses it fine, so the breakage only shows
+# up in the cluster. Force LF regardless of platform or editor.
+*.sh text eol=lf
