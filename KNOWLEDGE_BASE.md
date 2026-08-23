@@ -654,6 +654,44 @@ file scripts/wp-bootstrap.sh          # must not say CRLF
 kubectl exec -n wordpress deploy/wpcli -- sh -n /tmp/content/wp-bootstrap.sh
 ```
 
+#### Stripe keys live in a Kubernetes Secret, not the database
+
+The WooCommerce Stripe plugin stores API keys in the `woocommerce_stripe_settings` option, which puts a **live secret key in `wp_options` - and therefore in every nightly backup, in plaintext.** That is the exact exposure the SMTP credentials were kept out of the database to avoid.
+
+The plugin has no native environment-variable support, so `functions.php` filters `option_woocommerce_stripe_settings` on read and overrides any key present in the environment:
+
+| Setting | Environment variable | Secret key |
+|---|---|---|
+| `test_publishable_key` | `STRIPE_TEST_PUBLISHABLE_KEY` | `test-publishable-key` |
+| `test_secret_key` | `STRIPE_TEST_SECRET_KEY` | `test-secret-key` |
+| `publishable_key` | `STRIPE_LIVE_PUBLISHABLE_KEY` | `live-publishable-key` |
+| `secret_key` | `STRIPE_LIVE_SECRET_KEY` | `live-secret-key` |
+| `webhook_secret` | `STRIPE_LIVE_WEBHOOK_SECRET` | `live-webhook-secret` |
+
+Anything absent from the environment falls through to the stored value, and `optional: true` on every `secretKeyRef` means a missing Secret degrades rather than preventing the pod from starting.
+
+Env vars are set on **both** the `wordpress` and `wpcli` deployments - the same rule that caught SMTP out.
+
+**Creating or rotating keys:**
+```bash
+kubectl create secret generic stripe-secrets -n wordpress \
+  --from-literal=test-publishable-key='pk_test_...' \
+  --from-literal=test-secret-key='sk_test_...' \
+  --from-literal=live-publishable-key='pk_live_...' \
+  --from-literal=live-secret-key='sk_live_...'
+
+# to change keys later
+kubectl delete secret stripe-secrets -n wordpress
+kubectl create secret generic stripe-secrets -n wordpress --from-literal=...
+kubectl rollout restart deploy/wordpress deploy/wpcli -n wordpress
+```
+
+**Going live** is then a settings change, not a key paste: set `testmode` to `no` in WooCommerce and the plugin reads `STRIPE_LIVE_*` instead. Live keys never need to be typed into wp-admin.
+
+Verified: database key fields empty, plugin receives keys from env, a test PaymentIntent succeeded (`livemode: false`), and checkout still offers card.
+
+> ⚠️ Saving the Stripe settings form in wp-admin will write whatever is displayed back into the database. Manage keys through the Secret, not the admin screen.
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time
