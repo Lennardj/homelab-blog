@@ -603,6 +603,29 @@ Fields are registered at `order` level rather than per line item, because `sold_
 
 Verified end to end: fields registered, persisted to an order, and read back correctly.
 
+#### End-to-end booking test (test mode) - passed
+
+Full chain verified with Stripe in test mode:
+
+```
+Stripe PaymentIntent  pi_...  status succeeded, 140 NZD, livemode: false
+order #90             status processing, total 140.00, txn linked
+stock                 26 -> 25  (decremented by 1)
+emails                admin "new order" + customer "order received"
+checkout fields       student name / year / emergency name / phone all persisted
+```
+
+Test card `pm_card_visa` via `WC_Stripe_API`. All test orders deleted and stock restored to 28 afterwards; products returned to `draft`.
+
+> **HPOS: `wp_delete_post()` does not delete orders.** WooCommerce 11 uses High-Performance Order Storage, so orders live in `wp_wc_orders`, not `wp_posts`. `wp_delete_post()` on an order ID silently does nothing and reports success. An earlier cleanup that appeared to work had in fact left the order in place, and it — along with two other stray on-hold test orders — was holding stock, so a class showed 26 of 28 places with no visible booking.
+>
+> Use the data store instead:
+> ```php
+> $order = wc_get_order( $id );
+> $order->delete( true );
+> ```
+> **On-hold and processing orders reduce stock.** Abandoned test orders quietly consume capacity, which on a capped camp reads as places sold that were never sold.
+
 #### Before this can take real money
 
 1. **Stripe account** — business and bank verification, days of lead time

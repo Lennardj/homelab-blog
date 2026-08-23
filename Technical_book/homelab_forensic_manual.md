@@ -2104,6 +2104,45 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #30 — `wp_delete_post()` silently fails on WooCommerce orders (HPOS)
+
+**Symptom:** An end-to-end test booking reported `stock before: 26` on a class configured with 28 places. Two places had been consumed with no booking anyone had made deliberately.
+
+**Diagnostic:**
+
+```
+wp wc shop_order list
+id  status      total   date
+85  on-hold     140.00  18 Aug
+86  pending       0.00  18 Aug   <- previously reported as deleted
+87  on-hold     140.00  18 Aug
+90  processing  140.00  today
+```
+
+Order #86 had been created during an earlier checkout-fields test and removed with `wp_delete_post( $id, true )`. That call returned without error and the test reported the order deleted. It was not.
+
+**Root cause:** WooCommerce 11 uses **HPOS (High-Performance Order Storage)**. Orders are rows in `wp_wc_orders`, not posts in `wp_posts`. `wp_delete_post()` on an order ID finds nothing to delete, does nothing, and signals no failure. The cleanup step was a no-op that looked exactly like success.
+
+Compounding it: WooCommerce reduces stock for orders in `on-hold` and `processing`. Two stray test orders were therefore holding real capacity, and on a capacity-capped camp that presents as "26 of 28 places left" with no corresponding booking — indistinguishable from real sales.
+
+**Fix:** delete through the data store, which is storage-engine aware:
+
+```php
+$order = wc_get_order( $id );
+$order->delete( true );
+```
+
+Verified: all four orders removed, stock restored to 28, products returned to `draft`.
+
+**Interview talking points:**
+
+1. **A storage-layer migration invalidates helper functions that used to work.** HPOS moved orders out of the posts table; every `get_post`, `wp_delete_post` or direct `wp_posts` query against an order became silently wrong rather than loudly broken. Silent wrongness is the expensive kind.
+2. **Use the domain API, not the storage API.** `wc_get_order()` and `$order->delete()` work regardless of which backend is active. Reaching past an abstraction to the table underneath binds code to an implementation detail that will change.
+3. **Verify cleanup, not just the action under test.** The test itself passed. What failed was teardown, and teardown failures accumulate invisibly until they corrupt a later measurement - here, the capacity count on a live booking page.
+4. **Know which states consume inventory.** `on-hold` and `processing` reduce stock; abandoned or half-finished orders hold capacity indefinitely unless cancelled. The `hold_stock_minutes` setting only releases *pending* unpaid orders, not these.
+
+---
+
 ## Feature — Camp checkout fields, and the API that silently does nothing
 
 ### The trap
