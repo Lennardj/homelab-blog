@@ -47,14 +47,17 @@ spec:
               git clone --depth 1 --branch "$THEME_REF" \
                 https://github.com/Lennardj/homelab-blog /tmp/repo
               cp -R /tmp/repo/wordpress-theme/. /theme/
+              cp -R /tmp/repo/wordpress-mu-plugins/. /mu/
               # WordPress runs as www-data (33); the clone runs as root. Without
               # this the theme files are unreadable to the web server.
-              chmod -R a+rX /theme
+              chmod -R a+rX /theme /mu
               echo "theme synced from ref: $THEME_REF"
               ls -la /theme
           volumeMounts:
             - name: child-theme
               mountPath: /theme
+            - name: mu-plugins
+              mountPath: /mu
           resources:
             requests:
               cpu: 50m
@@ -233,6 +236,9 @@ spec:
             - name: child-theme
               mountPath: /var/www/html/wp-content/themes/lennardjohn
               readOnly: true
+            - name: mu-plugins
+              mountPath: /var/www/html/wp-content/mu-plugins
+              readOnly: true
       volumes:
         - name: wordpress-data
           persistentVolumeClaim:
@@ -241,6 +247,8 @@ spec:
           configMap:
             name: wordpress-php-config
         - name: child-theme
+          emptyDir: {}
+        - name: mu-plugins
           emptyDir: {}
 ---
 apiVersion: v1
