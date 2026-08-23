@@ -255,6 +255,17 @@ fi
 # --- pages -------------------------------------------------------------------
 # Upsert by slug. `wp post create` would happily create a fifth page called
 # "About"; looking the slug up first is what makes this re-runnable.
+# Look a page or post up by slug.
+#
+# `wp post list --name=<slug>` is NOT reliable: it silently returned nothing for
+# an existing DRAFT page, so the upsert took the create branch and WordPress
+# appended "-2" to the slug - producing a duplicate page rather than updating the
+# one that was already there. Matching post_name from a full listing is exact and
+# works regardless of post status.
+lj_find_by_slug() {
+  wp post list --post_type="$1" --post_status=any --fields=ID,post_name --format=csv 2>/dev/null     | awk -F, -v s="$2" 'NR>1 && $2==s {print $1; exit}'
+}
+
 # Fourth argument is an optional PARENT SLUG. Parents must be created before
 # their children, hence the ordering below. Setting post_parent is what produces
 # the nested URLs (/about/now/ rather than /now/).
@@ -271,14 +282,14 @@ upsert_page() {
 
   parent_id=0
   if [ -n "$parent_slug" ]; then
-    parent_id=$(wp post list --post_type=page --name="$parent_slug" --post_status=any --field=ID | head -n1)
+    parent_id=$(lj_find_by_slug page "$parent_slug")
     if [ -z "$parent_id" ]; then
       echo "  !! parent '$parent_slug' not found for '$slug'" >&2
       return 1
     fi
   fi
 
-  id=$(wp post list --post_type=page --name="$slug" --post_status=any --field=ID | head -n1)
+  id=$(lj_find_by_slug page "$slug")
 
   if [ -z "$id" ]; then
     id=$(wp post create "$file" \
@@ -341,13 +352,13 @@ echo "== legal pages =="
 upsert_page privacy-policy "Privacy Policy" privacy-policy.html
 upsert_page refund_returns "Refunds and Cancellations" refunds.html
 
-PRIVACY_ID=$(wp post list --post_type=page --name=privacy-policy --post_status=any --field=ID | head -n1)
+PRIVACY_ID=$(lj_find_by_slug page privacy-policy)
 if [ -n "$PRIVACY_ID" ]; then
   wp option update wp_page_for_privacy_policy "$PRIVACY_ID" >/dev/null
   echo "  wp_page_for_privacy_policy -> #$PRIVACY_ID"
 fi
 
-REFUND_ID=$(wp post list --post_type=page --name=refund_returns --post_status=any --field=ID | head -n1)
+REFUND_ID=$(lj_find_by_slug page refund_returns)
 if [ -n "$REFUND_ID" ] && wp plugin is-active woocommerce 2>/dev/null; then
   wp option update woocommerce_refund_returns_page_id "$REFUND_ID" >/dev/null
   # Shown under the checkout button, so the terms are visible at the moment of
@@ -361,7 +372,7 @@ fi
 # 301-redirects the old URLs so existing links do not break.
 echo "== retired pages =="
 for old in learn camp; do
-  oid=$(wp post list --post_type=page --name="$old" --post_status=any --field=ID | head -n1)
+  oid=$(lj_find_by_slug page "$old")
   if [ -n "$oid" ]; then
     wp post delete "$oid" --force >/dev/null
     echo "  deleted  $old (#$oid)"
@@ -392,7 +403,7 @@ upsert_post() {
     return 1
   fi
 
-  id=$(wp post list --post_type=post --name="$slug" --post_status=any --field=ID | head -n1)
+  id=$(lj_find_by_slug post "$slug")
 
   if [ -z "$id" ]; then
     id=$(wp post create "$file" \
@@ -449,8 +460,8 @@ upsert_post lpic-1-101-1-cheat-sheet \
 # The Blog page's own content is ignored by WordPress - the theme's home.html
 # template renders the post list instead.
 echo "== front page =="
-HOME_ID=$(wp post list --post_type=page --name=home --field=ID | head -n1)
-BLOG_ID=$(wp post list --post_type=page --name=blog --field=ID | head -n1)
+HOME_ID=$(lj_find_by_slug page home)
+BLOG_ID=$(lj_find_by_slug page blog)
 wp option update show_on_front page
 wp option update page_on_front "$HOME_ID"
 wp option update page_for_posts "$BLOG_ID"
