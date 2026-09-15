@@ -785,13 +785,47 @@ live webhook          we_1U7UDi…    enabled, livemode=true, 35 events
 signing secret        confirmed against a genuine Stripe-signed delivery
 ```
 
-**The one remaining step is publishing the products.** All four are still `draft`, which is the deliberate safety position — a draft product cannot be bought. Opening bookings is:
+#### Bookings opened 2026-09-15
+
+`camp-morning` (79) and `camp-afternoon` (80) published:
 
 ```bash
 kubectl exec -n wordpress deploy/wpcli -- wp post update 79 80 --post_status=publish
 ```
 
-Keep `camp-morning-2` (81) and `camp-afternoon-2` (82) as drafts until a session actually fills.
+`camp-morning-2` (81) and `camp-afternoon-2` (82) remain `draft` until a session actually fills — a draft product cannot be bought, which is the deliberate safety position.
+
+Verified after publishing:
+
+```
+camp-morning    publish  purchasable=true  in_stock=true  stock=28  price=140
+camp-afternoon  publish  purchasable=true  in_stock=true  stock=28  price=140
+cart:           1 item -> 140.00
+full day:       subtotal 280, fee -80, total 200.00
+public page:    2x "of 28 places left", add-to-cart=79 / 80, full-day link present
+                https://lennardjohn.org/education/tech-camp/ -> 200
+```
+
+> `/checkout/` returns 302 to `/cart/` for an anonymous request with no session. That is WooCommerce redirecting an empty cart, not a fault.
+
+##### ⚠️ WP-CLI reports the Stripe gateway as unavailable in live mode
+
+A pre-flight check on the CLI showed `available gateways: NONE`, which looks like a broken checkout and is not:
+
+```php
+private function needs_ssl_setup() {
+	return ! $this->testmode && ! is_ssl();
+}
+```
+
+WP-CLI has no HTTPS server variable, so `is_ssl()` is false; with `testmode` off, the gateway correctly refuses to be available. On a real request `wp-config.php:122` sets `$_SERVER['HTTPS']` from `X-Forwarded-Proto` and the gateway is available. Reproduce a true answer by setting the header before the check:
+
+```php
+$_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https';
+$_SERVER['HTTPS']                  = 'on';
+```
+
+This only appears **after** going live — in test mode `needs_ssl_setup()` short-circuits, so the same command reported the gateway as available for months. See Incident #35.
 
 **Still outstanding, none of them blocking:**
 

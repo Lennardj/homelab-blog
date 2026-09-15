@@ -2104,6 +2104,58 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #35 — `available gateways: NONE` — a pre-flight check that lied in the safe direction
+
+**Symptom:** final pre-flight before publishing the camp products and opening real bookings. Everything read correctly — gateway enabled, live keys present, NZD, guest checkout on, privacy and refund pages wired — and then the last line:
+
+```
+available gateways: NONE
+```
+
+Read literally: a site about to take money with no way to take it.
+
+**Diagnostic.** Each gateway individually said `enabled=yes available=false`. The cart and session both existed, so it was not a missing WooCommerce context. Reading the plugin's own logic gave the answer in two methods:
+
+```php
+public function is_available() {
+	if ( 'yes' === $this->enabled ) {
+		if ( ! $this->are_keys_set() )   { return false; }
+		if ( $this->needs_ssl_setup() )  { return false; }
+		return true;
+	}
+	return parent::is_available();
+}
+
+private function needs_ssl_setup() {
+	return ! $this->testmode && ! is_ssl();
+}
+```
+
+`are_keys_set()` was true — the plugin's own `pk_live_` / `[rs]k_live_` regex passing is independently useful, since it confirms the environment is delivering genuinely live-mode keys. So the failing condition was `is_ssl()`.
+
+**Root cause: WP-CLI is not a request.** There is no `$_SERVER['HTTPS']`, so `is_ssl()` is false. TLS on this site terminates at Cloudflare, and `wp-config.php:122` reconstructs the fact from `X-Forwarded-Proto` — a header that exists only on an actual HTTP request. On the command line there is no header, no scheme, and nothing to reconstruct from. The gateway was answering a different question than the one being asked: not "can this site take payments?" but "can payments be taken *in this execution context*?"
+
+Confirmed by supplying what a real request would carry:
+
+```
+is_ssl() in CLI:      false      ->  is_available(): false
+with HTTPS simulated: true       ->  is_available(): true, available gateways: stripe
+```
+
+**Why it had never appeared before.** `needs_ssl_setup()` short-circuits on `! $this->testmode`. Every previous check ran in test mode, where the SSL condition is never evaluated, so the identical command reported the gateway available for months. Flipping `testmode` to `no` activated a branch that had been dead the entire life of the project — and it activated it *only* on the CLI, the one place the answer is meaningless.
+
+**Resolution:** no change required. The products were published after confirming availability under simulated SSL, then verified against the live site over real HTTPS — two sessions rendering `of 28 places left`, working `add-to-cart` links, and the full-day offer. That external check, not the CLI, is the authoritative one.
+
+**Interview talking points:**
+
+1. **A predicate that depends on execution context cannot be evaluated out of context.** `is_available()` is not a property of the system; it is a property of the system *during a particular request*. Asking it from a cron job, a CLI command, or a unit test yields an answer about that environment, which is easy to mistake for an answer about production.
+2. **Distinguish "the check failed" from "the check does not apply here."** Both print the same red text. The only way to tell them apart is reading the implementation — three minutes in the plugin source that would otherwise have been spent debugging a checkout that was never broken.
+3. **Short-circuit evaluation hides code paths until configuration wakes them.** `! $this->testmode && ! is_ssl()` meant the SSL branch was unreachable in test mode. A condition that has never executed is untested by definition, and the go-live flip is exactly when a batch of them run for the first time.
+4. **Verifying at the wrong layer produces confident nonsense in both directions.** The same command would have reported "available" in test mode even if TLS were genuinely broken. Here it erred toward false alarm; the identical flaw can as easily erase a real one.
+5. **End on an external check.** Component-level verification — keys set, webhook signed, gateway available — is necessary and never sufficient. The thing that actually settled it was fetching the public page over real HTTPS and seeing the booking buttons a parent would click.
+
+---
+
 ## Incident #34 — The read-modify-write that would have leaked the live secret key
 
 **Another near miss, caught before the write.** The task was trivial: turn off Stripe debug logging before opening bookings, because it writes API traffic into `wp-content/uploads/wc-logs/`, which sits in the PVC and lands in every nightly backup.
