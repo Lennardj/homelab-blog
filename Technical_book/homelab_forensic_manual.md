@@ -2104,6 +2104,66 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #36 — A deploy that was killed and still reported success, and an email that said less than the website
+
+Two findings from one change: updating the camp session times after bookings had opened.
+
+### Part 1 — `Killed`, exit 137, and a wrapper that reported exit 0
+
+The bootstrap was run the documented way and its output ended:
+
+```
+== posts ==
+  updated  fixing-proxmox-terraform-deletes (#25)
+  updated  built-a-production-platform (#26)
+Killed
+command terminated with exit code 137
+```
+
+**Exit 137 is 128 + 9 — SIGKILL, the OOM killer.** The `wpcli` container has `limits.memory: 256Mi`, and a WP-CLI process that loads WooCommerce and rewrites every page and post exceeds it near the end of a full run.
+
+**What made it dangerous was the reporting.** The command was piped to `tail`, so the shell reported the exit status of `tail` — zero. The harness recorded *completed, exit code 0* for a run that had been killed. The word `Killed` sat eight lines above a success banner, in the middle of forty lines of routine "updated" output.
+
+**Assessing the actual damage meant knowing what came after the kill point:** `front page`, `permalinks`, `navigation`, `wp cache flush`. Checked individually — `show_on_front=page`, `page_on_front=7`, permalink structure already identical to what the script sets, navigation `#4` present and published. Every skipped step was idempotent and already in its target state, so nothing broke. That is luck about *where* it died, not a property of the script.
+
+A related symptom, visible in hindsight: `wp eval` calls during and just after the run took over two minutes each, against seconds normally. Memory pressure was observable before the kill was understood.
+
+**The near miss:** had it died during `== pages ==` instead, the site would have been left with some pages updated and some not, while the wrapper still reported success. A partial content deploy that claims to have completed is indistinguishable from a complete one until a user finds the stale page — which is exactly how this surfaced (see Part 2).
+
+### Part 2 — the page was stale because the deploy was still running
+
+The new times were reported as not showing on the live page. They were correct by the time it was checked again: page 46 was rewritten at 11:50:26, mid-run. The observation was true and the conclusion it invited — "the deploy did not work" — was false. **A long deploy has no atomic cut-over; during it, the site is genuinely inconsistent.**
+
+### Part 3 — the email says less than the website
+
+Prompted by the right question — *does the confirmation email have the correct time?* — the customer email was rendered from a real order without sending it:
+
+```php
+$email = WC()->mailer()->emails['WC_Email_Customer_Processing_Order'];
+$email->object = $order; $email->recipient = '...';
+$content = $email->get_content();
+```
+
+```
+9:00am absent   12:00pm absent   12:30pm absent   3:30pm absent
+Mon-Fri absent  Rosmini absent   28 Sep PRESENT (inside the product name)
+```
+
+**The time and venue are not in the email at all.** They live in the product's `short_description`, which the website renders and WooCommerce emails do not. The earlier end-to-end test verified emails were *delivered* and never inspected what they contained.
+
+The times had just been changed, and the question "is the new time in the email?" had a more uncomfortable answer than expected: no time had ever been in the email.
+
+### Interview talking points
+
+1. **Know which process's exit code you are reading.** `cmd | tail` reports `tail`'s status. Any pipeline silently discards the failure of everything but its last stage — `set -o pipefail`, or capture `${PIPESTATUS[0]}`, or do not pipe the command whose success you care about.
+2. **Exit 137 means the kernel killed it, not that your script failed.** 128 + signal. 137 is SIGKILL and on a container almost always the memory limit; 143 is SIGTERM. Reading it as "the script errored" sends you into the script instead of into the resource limits.
+3. **After a partial run, the question is not "did it fail" but "how far did it get".** Establish the kill point, list every step after it, verify each. Here all four were already in their target state — which is a fact to be checked, never assumed.
+4. **Long deploys make "it's still wrong" ambiguous.** Mid-run, stale and broken look identical from outside. Re-check after completion before diagnosing, and prefer deploys short enough that the window does not matter.
+5. **Delivery and content are different claims.** "The confirmation email works" was verified only as far as arrival. The thing a parent actually needs — where to be and when — had never been asserted by any test.
+6. **A user's question is a test you did not write.** "Did you confirm the email has the correct time?" surfaced a gap that every prior check had walked past, because each verified the layer it was aimed at and no one asked what the customer ends up holding. Verify at the layer the customer experiences, not the layer you are working in.
+
+---
+
 ## Incident #35 — `available gateways: NONE` — a pre-flight check that lied in the safe direction
 
 **Symptom:** final pre-flight before publishing the camp products and opening real bookings. Everything read correctly — gateway enabled, live keys present, NZD, guest checkout on, privacy and refund pages wired — and then the last line:

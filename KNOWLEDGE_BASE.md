@@ -336,7 +336,7 @@ No webfonts are currently loaded; font stacks use fonts already on the visitor's
 
 ### Plugins
 
-Declared in `scripts/wp-bootstrap.sh` rather than installed by clicking, so the plugin set is reproducible. They install onto the PVC, which the nightly backup covers.
+Declared in `wordpress-content/wp-bootstrap.sh` rather than installed by clicking, so the plugin set is reproducible. They install onto the PVC, which the nightly backup covers.
 
 | Plugin | Status | Purpose |
 |---|---|---|
@@ -353,7 +353,7 @@ Declared in `scripts/wp-bootstrap.sh` rather than installed by clicking, so the 
 
 ### Site content (Phase 3)
 
-Baseline page content is **version-controlled** in `wordpress-content/` as Gutenberg block markup (plain HTML with `<!-- wp:… -->` delimiters), applied by `scripts/wp-bootstrap.sh`.
+Baseline page content is **version-controlled** in `wordpress-content/` as Gutenberg block markup (plain HTML with `<!-- wp:… -->` delimiters), applied by `wordpress-content/wp-bootstrap.sh`.
 
 **Why block markup and not Elementor:** Elementor stores page designs as serialized JSON in the `_elementor_data` postmeta field — opaque, fragile to edit programmatically, and unreviewable in a diff. Block markup is plain text: authorable by hand or by an agent, diffable in Git, and requires no extra plugin. For a site intended to be edited programmatically rather than by clicking, this is the deciding factor.
 
@@ -644,6 +644,31 @@ Test card `pm_card_visa` via `WC_Stripe_API`. All test orders deleted and stock 
 > ```
 > **On-hold and processing orders reduce stock.** Abandoned test orders quietly consume capacity, which on a capped camp reads as places sold that were never sold.
 
+#### ⚠️ What the booking confirmation email actually contains — no time, no venue
+
+Rendered from a real order on 2026-09-15 (`WC_Email_Customer_Processing_Order::get_content()`, not sent):
+
+```
+9:00am   absent      12:30pm  absent
+12:00pm  absent      3:30pm   absent
+Mon-Fri  absent      Rosmini  absent
+28 Sep   PRESENT   <- only because it is inside the product name
+```
+
+A parent receives the product name, quantity, price and billing address. **The session time and the venue address appear nowhere in the email** — they exist only on the website.
+
+The earlier end-to-end test confirmed emails were *delivered*; it never checked what they *said*. Delivery and content are separate claims, and only one of them was verified.
+
+Why it matters: the confirmation is the artefact a parent keeps and refers back to on the morning of the camp. Times also changed after bookings opened (see above), so anyone booking before that change would hold an email that was silently correct only because it never stated a time at all.
+
+**Anything that must reach a parent has to be in the product name or injected into the email.** WooCommerce order emails render the product name and item meta — not the short description, which is where `Mon-Fri, 9:00am - 12:00pm` currently lives, and which is why the website looks complete while the email is not.
+
+#### `wp-bootstrap.sh` — one canonical copy
+
+The script previously existed twice, byte-identical, at `scripts/wp-bootstrap.sh` and `wordpress-content/wp-bootstrap.sh`. Only the second is ever executed: the deploy stages the whole `wordpress-content/` directory to `/tmp/content`, so the `scripts/` copy was never read. Editing it would have looked correct in Git and changed nothing on the site.
+
+The `scripts/` copy was deleted 2026-09-15. **Canonical location: `wordpress-content/wp-bootstrap.sh`.**
+
 #### Legal pages
 
 `privacy-policy` (#92) and `refund_returns` (#93) are version-controlled in `wordpress-content/` like every other page, so what is published is reviewable in Git rather than typed into wp-admin. Both are wired up:
@@ -668,7 +693,7 @@ Git Bash on Windows parses CRLF fine, so `sh -n` passes locally and the breakage
 
 `.gitattributes` now forces `*.sh text eol=lf`. When editing these scripts with a tool that rewrites the whole file, check:
 ```bash
-file scripts/wp-bootstrap.sh          # must not say CRLF
+file wordpress-content/wp-bootstrap.sh   # must not say CRLF
 kubectl exec -n wordpress deploy/wpcli -- sh -n /tmp/content/wp-bootstrap.sh
 ```
 
