@@ -150,9 +150,13 @@ if wp plugin is-active woocommerce 2>/dev/null; then
   # sold_individually stops one parent taking the whole class in a single order.
   # virtual=true means no shipping fields anywhere in checkout.
   #
-  # !! PLACEHOLDER DATES, TIMES AND PRICES !! - replace with the real schedule.
-  # Products stay in `draft` until then, so nothing is publicly bookable while
-  # the details are still invented.
+  # Dates, times and prices are REAL as of 2026-09-15 and camp-morning /
+  # camp-afternoon are PUBLISHED and taking live payments. Treat every value
+  # below as customer-facing: this script rewrites name, description and
+  # short_description on every run.
+  #
+  # Session times changed 2026-09-15: morning 9:00am-12:00pm (was 9:30-12:30),
+  # afternoon 12:30pm-3:30pm (was 1:30-4:30).
   WC_ADMIN="${WC_ADMIN:-1}"
 
   # Price is declared here, so Git is the source of truth for what a place costs.
@@ -218,28 +222,31 @@ if wp plugin is-active woocommerce 2>/dev/null; then
   #
   # Week one of the holiday: Mon 28 Sep - Fri 2 Oct 2026. If it fills, either a
   # second class opens (publish the -2 products) or week two (5-9 Oct) is added.
-  # Products stay DRAFT until Stripe and transactional email are live - a
-  # published, priced product with no working payment gateway is worse than none.
+  #
+  # camp-morning and camp-afternoon went live 2026-09-15; the -2 overflow
+  # classes remain draft until a session actually fills. The update path below
+  # never touches status or stock, so re-running this on a live site is safe -
+  # it will not unpublish a class or wipe the record of places sold.
   echo "== camp sessions =="
   upsert_class "camp-morning" \
     "AI Camp - Morning Session, 28 Sep - 2 Oct" "28" "140" \
-    "Five days of hands-on AI, Monday to Friday, 9:30am to 12:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
-    "Mon-Fri, 9:30am - 12:30pm"
+    "Five days of hands-on AI, Monday to Friday, 9:00am to 12:00pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
+    "Mon-Fri, 9:00am - 12:00pm"
 
   upsert_class "camp-afternoon" \
     "AI Camp - Afternoon Session, 28 Sep - 2 Oct" "28" "140" \
-    "Five days of hands-on AI, Monday to Friday, 1:30pm to 4:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
-    "Mon-Fri, 1:30pm - 4:30pm"
+    "Five days of hands-on AI, Monday to Friday, 12:30pm to 3:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
+    "Mon-Fri, 12:30pm - 3:30pm"
 
   upsert_class "camp-morning-2" \
     "AI Camp - Morning Session (Second Class), 28 Sep - 2 Oct" "28" "140" \
-    "A second morning class running alongside the first. Five days of hands-on AI, Monday to Friday, 9:30am to 12:30pm at Rosmini College, Takapuna." \
-    "Mon-Fri, 9:30am - 12:30pm"
+    "A second morning class running alongside the first. Five days of hands-on AI, Monday to Friday, 9:00am to 12:00pm at Rosmini College, Takapuna." \
+    "Mon-Fri, 9:00am - 12:00pm"
 
   upsert_class "camp-afternoon-2" \
     "AI Camp - Afternoon Session (Second Class), 28 Sep - 2 Oct" "28" "140" \
-    "A second afternoon class running alongside the first. Five days of hands-on AI, Monday to Friday, 1:30pm to 4:30pm at Rosmini College, Takapuna." \
-    "Mon-Fri, 1:30pm - 4:30pm"
+    "A second afternoon class running alongside the first. Five days of hands-on AI, Monday to Friday, 12:30pm to 3:30pm at Rosmini College, Takapuna." \
+    "Mon-Fri, 12:30pm - 3:30pm"
 
   # Retire the original placeholder SKUs. Safe: they were never published, never
   # priced and never bookable, so no order can reference them.

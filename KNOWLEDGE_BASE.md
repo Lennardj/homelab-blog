@@ -499,12 +499,14 @@ Verified across the full range: `28→0/28/0%`, `14→14/28/50%`, `7→21/28/75%
 
 #### The camp, as configured
 
-**AI camp for Year 7–10**, Rosmini College, 36 Dominion Street, Takapuna. Week one of the September–October 2026 holidays: **Mon 28 Sep – Fri 2 Oct**. Morning 9:30–12:30, afternoon 1:30–4:30. 28 places per session. Full refund if cancelled at least a week before.
+**AI camp for Year 7–10**, Rosmini College, 36 Dominion Street, Takapuna. Week one of the September–October 2026 holidays: **Mon 28 Sep – Fri 2 Oct**. Morning **9:00–12:00**, afternoon **12:30–3:30**. 28 places per session. Full refund if cancelled at least a week before.
+
+> Times changed 2026-09-15 (from morning 9:30–12:30, afternoon 1:30–4:30), after bookings opened but while order count was still zero. The gap between sessions is now **30 minutes**, not an hour — worth knowing for full-day bookings, where one child is on site 9:00–3:30 with a half-hour break.
 
 | SKU | Session | Price | Status |
 |---|---|---|---|
-| `camp-morning` | Mon–Fri 9:30–12:30 | $140 | draft |
-| `camp-afternoon` | Mon–Fri 1:30–4:30 | $140 | draft |
+| `camp-morning` | Mon–Fri 9:00–12:00 | $140 | **published 2026-09-15** |
+| `camp-afternoon` | Mon–Fri 12:30–3:30 | $140 | **published 2026-09-15** |
 | `camp-morning-2` | overflow class | $140 | draft |
 | `camp-afternoon-2` | overflow class | $140 | draft |
 
