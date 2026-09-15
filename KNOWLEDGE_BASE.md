@@ -522,6 +522,22 @@ Selling the two real sessions keeps every capacity count honest; `woocommerce_ca
 
 Verified: subtotal 280, fee −80, total **200.00**.
 
+**A full day consumes one place in *each* session — verified 2026-09-15 against live stock:**
+
+```
+before   morning=28  afternoon=28
+cart     camp-morning qty=1 · camp-afternoon qty=1 · fee -80 · total 200.00
+after    morning=27  afternoon=27
+```
+
+This is the claim the design rests on, and the totals check above does not prove it — a bundle SKU would also have shown 280/−80/200 while decrementing nothing. Two separate line items are what make `wc_maybe_reduce_stock_levels()` reduce both.
+
+The handler (`wordpress-theme/functions.php:210`) checks `is_purchasable()` and `is_in_stock()` per product before adding, so if the afternoon fills, the full-day link adds only the morning rather than selling a place that does not exist.
+
+> **Test method, if repeating it:** creating a real order is the only way to exercise the checkout stock path. Guard it — the test restores stock by *absolute* value, which would erase a genuine concurrent booking, so it must abort if any order exists. Clean up with `$order->delete( true )`, never `wp_delete_post()` (Incident #30).
+
+> ⚠️ **The discount lives in the cart session only.** `woocommerce_cart_calculate_fees` does not run for admin-created or phone orders, so the $80 will not apply there. Relevant if bookings are ever taken any way other than through the website.
+
 **`sold_individually` means one child per order.** A parent booking two children places two orders. That is deliberate — it keeps child details cleanly mapped to an order, and stops one booking consuming a whole class.
 
 #### Transactional email (Brevo SMTP) ✅ working
