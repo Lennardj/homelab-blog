@@ -2104,6 +2104,55 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #34 — The read-modify-write that would have leaked the live secret key
+
+**Another near miss, caught before the write.** The task was trivial: turn off Stripe debug logging before opening bookings, because it writes API traffic into `wp-content/uploads/wc-logs/`, which sits in the PVC and lands in every nightly backup.
+
+**The obvious implementation is a credential leak:**
+
+```php
+$settings = get_option( 'woocommerce_stripe_settings' );  // filtered: keys injected
+$settings['logging'] = 'no';
+update_option( 'woocommerce_stripe_settings', $settings );  // writes sk_live_ to the database
+```
+
+`get_option()` runs the mu-plugin's `option_woocommerce_stripe_settings` filter, so the array it returns contains the live secret key, the live publishable key and both webhook secrets — pulled from the Kubernetes Secret. Writing it back **persists all of them into `wp_options`**, undoing the entire architecture of Incidents #32/#33 in a single line, and putting a live secret key into the next nightly restic snapshot in plaintext.
+
+**Why this is easy to walk into:** the filter is designed to be invisible. Everything reading settings gets working credentials without knowing where they came from — that is the feature. The cost is that *read* and *write* are no longer symmetric: what you read is not what is stored, so the standard read-modify-write idiom silently promotes a runtime value into persistent state. Every filtered option in WordPress has this property.
+
+It is the same failure as the documented wp-admin warning ("saving the Stripe settings form writes whatever is displayed back into the database"), reached through code instead of a form. Recognising them as one bug, rather than two unrelated cautions, is what makes the rule memorable.
+
+**Fix — read the raw row, bypassing the filter:**
+
+```php
+$raw      = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'woocommerce_stripe_settings' ) );
+$settings = maybe_unserialize( $raw );
+
+foreach ( $key_fields as $field ) {                 // refuse to write if a key is present
+	if ( ! empty( $settings[ $field ] ) ) { exit( 1 ); }
+}
+
+$settings['logging'] = 'no';
+update_option( 'woocommerce_stripe_settings', $settings );
+```
+
+The guard matters as much as the raw read. It converts an assumption ("the DB fields are empty") into an assertion that aborts, so if the database ever *does* hold a key the script refuses rather than rewriting it.
+
+**Verified** by re-reading the raw row after the write — `logging` now `no`, all six key fields still `EMPTY in DB` — and separately through the filtered path, confirming the gateway still receives `sk_live_…` and `whsec_…` from the environment.
+
+**Incidental finding.** Auditing the logs before disabling showed ~15.9 MB accumulated over 25 days on a site with no customers. 71 lines per day were one repeating pair — `Did not find Payment Method Configuration that inherits from the WooCommerce platform` / `Using fallback Payment Method Configuration` — each embedding a full 100-item API response as context. Expected for an account connected by manual API keys rather than the WooCommerce onboarding flow; card payments are unaffected. The only public IP in any log was the cluster's own egress address, so nothing sensitive was captured — but only because no real parent had checked out yet.
+
+**Interview talking points:**
+
+1. **A transparent read layer makes read-modify-write unsafe.** Anywhere a value is decorated on read — a WordPress option filter, an ORM accessor, a config layer merging defaults, a Kubernetes mutating webhook — reading and writing back is not a no-op. It promotes computed values into stored state. The convenience of transparency is paid for at write time.
+2. **Know which layer holds the truth.** The secret's home is the Kubernetes Secret; the database's correct content is *empty*. An operation that silently changes where a credential lives is a security change wearing the costume of a settings tweak.
+3. **Assert your preconditions rather than assuming them.** The guard rejecting a non-empty key field costs three lines and converts a silent catastrophic write into a loud refusal. Cheap assertions belong wherever a script writes to something it did not fully read.
+4. **Verify through the path you bypassed.** The raw re-read proves what landed on disk; the filtered read proves the gateway still works. Checking only one would leave either a leak or an outage undetected.
+5. **Audit logs before deleting them, not after.** The question "what is actually in here?" turned a cleanup into two findings: a misconfiguration warning repeating 71 times a day, and confirmation that no customer data had been captured. Deleting first would have destroyed the evidence for both.
+6. **Timing was luck, and luck is not a control.** The logs were clean only because no real booking had happened yet. Had this been done a week after opening, parents' IPs would already be in backups the privacy policy never mentions. Decide what a system records *before* it starts recording the real thing.
+
+---
+
 ## Incident #33 — A test that proved nothing: verifying a webhook secret against itself
 
 **Not a failure — a near miss.** The system was correct. The *verification* was not, and it would have reported success no matter what.

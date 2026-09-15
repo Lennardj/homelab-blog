@@ -740,7 +740,29 @@ A `last success` newer than the trigger, with no new failure, proves the secret 
 
 > ⚠️ **The secrets filter MUST live in a must-use plugin, not the theme.** See Incident #32. `WC_Stripe_Webhook_Handler::__construct()` reads the signing secret while plugins are loading, before `functions.php` exists, so a theme-registered filter is too late and every webhook fails with `empty_secret` - including correctly signed ones. `wordpress-mu-plugins/lj-secrets.php` is synced by the same initContainer as the theme, into `wp-content/mu-plugins`.
 
-Stripe debug logging is currently **enabled** (`logging: yes`), which writes request headers - including client IPs - to `wp-content/uploads/wc-logs/`. Useful while bedding payments in; consider disabling once live and stable.
+#### Stripe debug logging — disabled 2026-09-15
+
+`logging` is now `no`. While enabled it wrote every API request and response to `wp-content/uploads/wc-logs/`, which lives in the PVC and therefore in every nightly restic backup.
+
+**Volume:** 25 files, ~15.9 MB, roughly 800 KB/day on a site with no customers. 71 of the ~361 lines per day were one repeating pair:
+
+```
+WARNING Did not find Payment Method Configuration that inherits from the WooCommerce platform
+DEBUG   Using fallback Payment Method Configuration
+```
+
+Each line embeds the full `GET payment_method_configurations?limit=100` response as context, which is what made a quiet site produce megabytes. The warning is expected here: the account is connected with **manual API keys**, not the WooCommerce onboarding flow, so no platform-linked configuration exists and the plugin falls back. Card payments are unaffected (verified live).
+
+**Audit of what the logs actually captured:** the only public IP present is `116.251.171.15` — the cluster's own egress. No customer IPs, because no real checkout has happened yet. Had the logs been left on through live bookings, parents' IPs would have accumulated in backups without being mentioned in the privacy policy.
+
+> ⚠️ **Never change these settings with a `get_option()` read-modify-write.** `get_option( 'woocommerce_stripe_settings' )` returns the array *after* the mu-plugin filter has injected the live keys. Writing that back persists `sk_live_…` into `wp_options` — the exact exposure the whole design prevents, and it would land in the next nightly backup. Read the raw row instead:
+> ```php
+> $raw      = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'woocommerce_stripe_settings' ) );
+> $settings = maybe_unserialize( $raw );
+> $settings['logging'] = 'no';
+> update_option( 'woocommerce_stripe_settings', $settings );
+> ```
+> Assert every key field is empty before writing, and re-read the raw row afterwards to confirm. Same trap as saving the settings form in wp-admin. See Incident #34.
 
 #### Before this can take real money — ✅ cleared 2026-09-15
 
@@ -773,7 +795,7 @@ Keep `camp-morning-2` (81) and `camp-afternoon-2` (82) as drafts until a session
 
 **Still outstanding, none of them blocking:**
 
-- Stripe debug logging is `yes`, writing client IPs to `wp-content/uploads/wc-logs/`. Useful while bedding payments in; turn it off once stable.
+- ~~Stripe debug logging~~ — disabled 2026-09-15. ~15.9 MB of existing logs remain in the PVC (and in backups); they contain no customer IPs, so deleting them is housekeeping, not remediation.
 - No Prometheus alert on the backup CronJob failing (§16).
 - SPF record — adding `include:spf.brevo.com` means editing `terraform/**`, which triggers the failing CI pipeline.
 
