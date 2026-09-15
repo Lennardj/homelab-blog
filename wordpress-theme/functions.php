@@ -124,6 +124,94 @@ function lj_camp_skus(): array {
 }
 
 /**
+ * Camp venue. Declared here so Git is the source of truth for the address a
+ * parent is told to drive to, rather than it living only in page content.
+ */
+function lj_camp_venue(): string {
+    return 'Rosmini College, 36 Dominion Street, Takapuna';
+}
+
+/**
+ * Camp contact address, for a parent who needs to reach someone.
+ */
+function lj_camp_contact(): string {
+    return 'holidaycamp@lennardjohn.org';
+}
+
+/**
+ * Append camp details to the customer's booking emails.
+ *
+ * WHY THIS EXISTS
+ * WooCommerce order emails render the product name, quantity and price - and
+ * NOT the short_description. The session time and the venue therefore appeared
+ * on the website and nowhere in the confirmation, which is the one artefact a
+ * parent keeps and re-reads on the morning of the camp. The time is now in the
+ * product name; this block adds the venue and a contact address.
+ *
+ * Customer emails only. `$sent_to_admin` guards it: the admin already knows
+ * where their own camp is, and the block would be noise on every order alert.
+ *
+ * Renders in both HTML and plain-text variants, because WooCommerce sends
+ * whichever the customer's settings dictate and a block that renders only in
+ * HTML silently disappears for plain-text recipients.
+ */
+add_action(
+    'woocommerce_email_after_order_table',
+    static function ( $order, $sent_to_admin = false, $plain_text = false, $email = null ): void {
+        if ( $sent_to_admin || ! $order instanceof WC_Order ) {
+            return;
+        }
+
+        // Only for orders that actually contain a camp session.
+        $skus      = lj_camp_skus();
+        $camp_skus = array_merge( $skus['morning'], $skus['afternoon'] );
+        $is_camp   = false;
+
+        foreach ( $order->get_items() as $item ) {
+            $product = $item->get_product();
+            if ( $product instanceof WC_Product && in_array( $product->get_sku(), $camp_skus, true ) ) {
+                $is_camp = true;
+                break;
+            }
+        }
+
+        if ( ! $is_camp ) {
+            return;
+        }
+
+        $venue   = lj_camp_venue();
+        $contact = lj_camp_contact();
+
+        if ( $plain_text ) {
+            echo "\n\n" . esc_html__( 'Camp details', 'lennardjohn' ) . "\n";
+            echo esc_html( 'Where: ' . $venue ) . "\n";
+            echo esc_html__( 'When: the session times are in the item name above.', 'lennardjohn' ) . "\n";
+            echo esc_html( 'Questions: ' . $contact ) . "\n";
+            return;
+        }
+        ?>
+        <div style="margin:24px 0;padding:16px;border:1px solid #e0e0e0;border-radius:4px;">
+            <h2 style="margin:0 0 8px;font-size:16px;"><?php esc_html_e( 'Camp details', 'lennardjohn' ); ?></h2>
+            <p style="margin:0 0 4px;">
+                <strong><?php esc_html_e( 'Where', 'lennardjohn' ); ?>:</strong>
+                <?php echo esc_html( $venue ); ?>
+            </p>
+            <p style="margin:0 0 4px;">
+                <strong><?php esc_html_e( 'When', 'lennardjohn' ); ?>:</strong>
+                <?php esc_html_e( 'the session times are in the item name above.', 'lennardjohn' ); ?>
+            </p>
+            <p style="margin:0;">
+                <strong><?php esc_html_e( 'Questions', 'lennardjohn' ); ?>:</strong>
+                <a href="mailto:<?php echo esc_attr( $contact ); ?>"><?php echo esc_html( $contact ); ?></a>
+            </p>
+        </div>
+        <?php
+    },
+    10,
+    4
+);
+
+/**
  * Full-day price. A single session is £/$140; both together are 200 rather than
  * 280, so the discount is derived rather than hardcoded - change the session
  * price and the maths still holds.

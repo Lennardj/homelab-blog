@@ -228,25 +228,33 @@ if wp plugin is-active woocommerce 2>/dev/null; then
   # never touches status or stock, so re-running this on a live site is safe -
   # it will not unpublish a class or wipe the record of places sold.
   echo "== camp sessions =="
+  # THE TIME BELONGS IN THE PRODUCT NAME.
+  # WooCommerce order emails render the product NAME and item meta - never the
+  # short_description. While the time lived only in short_description the
+  # website showed it and the booking confirmation did not, so a parent's one
+  # durable record of the booking said nothing about when to turn up. The name
+  # propagates everywhere: confirmation email, admin order list, cart, checkout.
+  # short_description now carries the venue, so the class card on the page does
+  # not simply repeat the heading.
   upsert_class "camp-morning" \
-    "AI Camp - Morning Session, 28 Sep - 2 Oct" "28" "140" \
+    "AI Camp - Morning Session, Mon-Fri 9:00am-12:00pm, 28 Sep - 2 Oct" "28" "140" \
     "Five days of hands-on AI, Monday to Friday, 9:00am to 12:00pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
-    "Mon-Fri, 9:00am - 12:00pm"
+    "Rosmini College, Takapuna. Year 7-10, all equipment provided."
 
   upsert_class "camp-afternoon" \
-    "AI Camp - Afternoon Session, 28 Sep - 2 Oct" "28" "140" \
+    "AI Camp - Afternoon Session, Mon-Fri 12:30pm-3:30pm, 28 Sep - 2 Oct" "28" "140" \
     "Five days of hands-on AI, Monday to Friday, 12:30pm to 3:30pm at Rosmini College, Takapuna. For Year 7-10 students. All equipment provided." \
-    "Mon-Fri, 12:30pm - 3:30pm"
+    "Rosmini College, Takapuna. Year 7-10, all equipment provided."
 
   upsert_class "camp-morning-2" \
-    "AI Camp - Morning Session (Second Class), 28 Sep - 2 Oct" "28" "140" \
+    "AI Camp - Morning Session (Second Class), Mon-Fri 9:00am-12:00pm, 28 Sep - 2 Oct" "28" "140" \
     "A second morning class running alongside the first. Five days of hands-on AI, Monday to Friday, 9:00am to 12:00pm at Rosmini College, Takapuna." \
-    "Mon-Fri, 9:00am - 12:00pm"
+    "Rosmini College, Takapuna. Year 7-10, all equipment provided."
 
   upsert_class "camp-afternoon-2" \
-    "AI Camp - Afternoon Session (Second Class), 28 Sep - 2 Oct" "28" "140" \
+    "AI Camp - Afternoon Session (Second Class), Mon-Fri 12:30pm-3:30pm, 28 Sep - 2 Oct" "28" "140" \
     "A second afternoon class running alongside the first. Five days of hands-on AI, Monday to Friday, 12:30pm to 3:30pm at Rosmini College, Takapuna." \
-    "Mon-Fri, 12:30pm - 3:30pm"
+    "Rosmini College, Takapuna. Year 7-10, all equipment provided."
 
   # Retire the original placeholder SKUs. Safe: they were never published, never
   # priced and never bookable, so no order can reference them.
