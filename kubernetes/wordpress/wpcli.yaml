@@ -204,13 +204,19 @@ spec:
             - name: mu-plugins
               mountPath: /var/www/html/wp-content/mu-plugins
               readOnly: true
+          # 512Mi, raised from 256Mi on 2026-09-16. A full wp-bootstrap.sh run
+          # loads WooCommerce and rewrites every page and post in one PHP
+          # process, and was OOM-killed (exit 137) near the end at 256Mi - see
+          # Incident #37. The request stays at 32Mi: this pod idles on
+          # `sleep infinity` almost all the time, so reserving more would
+          # take node capacity from workloads that actually use it.
           resources:
             requests:
               cpu: 10m
               memory: 32Mi
             limits:
               cpu: 500m
-              memory: 256Mi
+              memory: 512Mi
       volumes:
         - name: wordpress-data
           persistentVolumeClaim:
