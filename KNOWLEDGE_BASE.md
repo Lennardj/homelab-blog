@@ -714,7 +714,7 @@ source.chargeable   source.canceled
 
 Signing secrets come from the `stripe-secrets` Secret (`test-webhook-secret`, `live-webhook-secret`), never the database.
 
-**Verification technique** - construct a signed request locally rather than waiting on Stripe:
+**Verification technique 1 - a locally signed request.** Constructs the signature by hand rather than waiting on Stripe:
 ```php
 $t = time();
 $sig = hash_hmac( 'sha256', $t . '.' . $payload, getenv( 'STRIPE_TEST_WEBHOOK_SECRET' ) );
@@ -722,16 +722,60 @@ $sig = hash_hmac( 'sha256', $t . '.' . $payload, getenv( 'STRIPE_TEST_WEBHOOK_SE
 ```
 Verified: unsigned POST returns **204** (rejected), correctly signed POST returns **200** (processed). Note the plugin returns 204 for *both* rejection and some no-op cases, so HTTP status alone is not proof - the 200 on a signed request is.
 
+> ⚠️ **This proves the plumbing, not the secret.** The request is signed with the same environment secret the handler verifies against, so it passes by construction whether or not that secret is the one Stripe actually signs with. It confirms the mu-plugin supplies a secret, the handler reads it, and signature verification works end to end through Cloudflare - and nothing more. See Incident #33.
+
+**Verification technique 2 - make Stripe sign it.** The only way to prove the stored secret matches the registered endpoint, because **Stripe reveals a signing secret only at endpoint creation and never again** (`GET /v1/webhook_endpoints/:id` returns no `secret` field).
+
+Create an object that fires a subscribed event, then read the plugin's own state:
+```php
+// fires setup_intent.created - free, charges nothing, no card, cancellable
+WC_Stripe_API::request( [ 'payment_method_types' => [ 'card' ], 'usage' => 'off_session' ], 'setup_intents' );
+// ...then:
+WC_Stripe_Webhook_State::get_last_webhook_success_at();
+WC_Stripe_Webhook_State::get_last_webhook_failure_at();
+```
+A `last success` newer than the trigger, with no new failure, proves the secret matches. Choose an event that is **subscribed but not handled** by `process_webhook()` - the signature check still runs, but nothing mutates order state. Cancel the SetupIntent afterwards.
+
+> Record the baseline timestamps *before* triggering. Both counters are global, so an earlier local probe will otherwise be mistaken for the real delivery.
+
 > ⚠️ **The secrets filter MUST live in a must-use plugin, not the theme.** See Incident #32. `WC_Stripe_Webhook_Handler::__construct()` reads the signing secret while plugins are loading, before `functions.php` exists, so a theme-registered filter is too late and every webhook fails with `empty_secret` - including correctly signed ones. `wordpress-mu-plugins/lj-secrets.php` is synced by the same initContainer as the theme, into `wp-content/mu-plugins`.
 
 Stripe debug logging is currently **enabled** (`logging: yes`), which writes request headers - including client IPs - to `wp-content/uploads/wc-logs/`. Useful while bedding payments in; consider disabling once live and stable.
 
-#### Before this can take real money
+#### Before this can take real money — ✅ cleared 2026-09-15
 
-1. **Stripe account** — business and bank verification, days of lead time
-2. **Transactional email** — receipts must reach parents; Gmail SMTP will land them in spam. Needs a provider plus SPF/DKIM/DMARC, and those DNS records live in `terraform/**`, which triggers the failing CI pipeline
-3. **Privacy policy and refund terms published** — the Privacy Policy page still exists as a draft
-4. **Real schedule** — dates, times, price and class count are all placeholders
+All four original blockers are done. Verified against the live cluster and the live Stripe account:
+
+| Blocker | State |
+|---|---|
+| **Stripe account** — business and bank verification | ✅ `acct_1PPJLD…`, NZ/NZD, `charges_enabled` and `payouts_enabled` both true, `details_submitted` true, no outstanding `requirements` |
+| **Transactional email** — receipts must reach parents | ✅ Brevo SMTP working, DKIM + DMARC authenticating, reply path routed. SPF still missing `include:spf.brevo.com` (deliverability only — DMARC passes on DKIM alignment) |
+| **Privacy policy and refund terms published** | ✅ published as #92 / #93 and wired into checkout. Still unreviewed by anyone legally qualified, particularly on children's data |
+| **Real schedule** | ✅ AI camp, Rosmini College, Mon 28 Sep – Fri 2 Oct 2026, $140 per session, 28 places, `_lj_capacity` set on all four products |
+
+Live-mode state as configured:
+
+```
+testmode              no            (plugin reads STRIPE_LIVE_* from the Secret)
+database key fields   all EMPTY     (supplied by the mu-plugin filter on read)
+live webhook          we_1U7UDi…    enabled, livemode=true, 35 events
+                                    url https://lennardjohn.org/?wc-api=wc_stripe
+signing secret        confirmed against a genuine Stripe-signed delivery
+```
+
+**The one remaining step is publishing the products.** All four are still `draft`, which is the deliberate safety position — a draft product cannot be bought. Opening bookings is:
+
+```bash
+kubectl exec -n wordpress deploy/wpcli -- wp post update 79 80 --post_status=publish
+```
+
+Keep `camp-morning-2` (81) and `camp-afternoon-2` (82) as drafts until a session actually fills.
+
+**Still outstanding, none of them blocking:**
+
+- Stripe debug logging is `yes`, writing client IPs to `wp-content/uploads/wc-logs/`. Useful while bedding payments in; turn it off once stable.
+- No Prometheus alert on the backup CronJob failing (§16).
+- SPF record — adding `include:spf.brevo.com` means editing `terraform/**`, which triggers the failing CI pipeline.
 
 **Medical and allergy data is deliberately not collected online** (owner's decision). Checkout captures child name, age and emergency contact only; medical details are gathered separately nearer the camp date, so sensitive data about minors is not sitting in the database and every nightly backup.
 

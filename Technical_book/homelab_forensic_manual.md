@@ -2104,6 +2104,67 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
+## Incident #33 — A test that proved nothing: verifying a webhook secret against itself
+
+**Not a failure — a near miss.** The system was correct. The *verification* was not, and it would have reported success no matter what.
+
+**Context:** with live Stripe keys in place, the remaining question before opening bookings was whether `STRIPE_LIVE_WEBHOOK_SECRET` in the Kubernetes Secret actually matched the signing secret of the registered endpoint `we_1U7UDi…`. A mismatch is the worst kind of payments bug: Stripe charges the parent successfully, WooCommerce never hears about it, the order stays pending, `hold_stock_minutes` releases the place after 60 minutes, and someone else books it. You hold their money and their child has no seat.
+
+**The test that looked like proof** — the technique from Incident #32, reused:
+
+```
+UNSIGNED        -> 204   (rejected)
+BAD SIGNATURE   -> 204   (rejected)
+SIGNED (live)   -> 200   (processed)
+```
+
+Three results, cleanly discriminating, and one of them is worthless. The signature was computed with `getenv( 'STRIPE_LIVE_WEBHOOK_SECRET' )` — the *same value the handler verifies against*. Both sides of the comparison read from one source, so the test passes by construction. Had the Secret held a stale secret from a deleted endpoint, or a typo, or the test-mode secret, the output would have been byte-identical.
+
+It is a real test of something — the mu-plugin supplies a secret, the handler reads it at construction time, HMAC validation works end to end through Cloudflare and the tunnel. Every one of those could have been broken and wasn't. It simply cannot speak to the question actually being asked.
+
+**Why the obvious check is unavailable:** Stripe returns a webhook signing secret **only in the response that creates the endpoint**. `GET /v1/webhook_endpoints/:id` has no `secret` field, so the stored value cannot be compared against the authoritative one. Verification has to be behavioural.
+
+**Diagnostic — look for a real delivery first.** The plugin records its own state:
+
+```
+last success: 1789448807
+last failure: 1789448808
+last error:   'The webhook was not signed with the expected signing secret'
+```
+
+Both timestamps were from the probes run seconds earlier — the "failure" was the deliberate bad-signature request. `GET /v1/events` confirmed the account had seen exactly one live event ever (`account.updated`, five weeks prior). No genuine delivery had ever been attempted, so there was no history to consult.
+
+**Note the self-contamination:** the local probe *writes* `last_webhook_success_at`, the same counter used as evidence. A verification step that overwrites the record it later reads is a trap worth seeing before you fall into it.
+
+**Fix: make Stripe sign it.** Create an object that fires a subscribed event, and let Stripe generate the signature:
+
+```php
+// setup_intent.created — subscribed, free, charges nothing, no card, cancellable
+WC_Stripe_API::request( [ 'payment_method_types' => [ 'card' ], 'usage' => 'off_session' ], 'setup_intents' );
+```
+
+Event choice matters on a live account. It must be **subscribed but not handled** by `process_webhook()`: subscribed so Stripe delivers it and the signature check runs, unhandled so nothing mutates order state. `setup_intent.created` satisfies both, costs nothing, and cancels cleanly. `payment_intent.*` would have entangled the probe with real order handling.
+
+**Result** — baseline recorded first, because the counters are global:
+
+```
+baseline      success=1789448807  failure=1789448808
+after trigger success=1789448885  failure=1789448808   (unchanged)
+```
+
+Success advanced past a delivery that **Stripe signed with its own copy of the secret**, and no new failure appeared. That is proof; the 200 was not.
+
+**Interview talking points:**
+
+1. **A test whose input and oracle share a source cannot fail.** Signing with the secret under test makes the assertion tautological. This is the same defect as an integration test that mocks the very dependency it claims to integrate with — the ritual of testing without the information content. Ask of any green result: what value would have made this red?
+2. **Know what your evidence is evidence *of*.** The 200 was not a false result; it was a true answer to a different question. Partial verification is more dangerous than none, because it retires the question in your head while leaving the risk in the system.
+3. **Some systems are deliberately write-only, and that shapes how you verify them.** Stripe never re-reveals a signing secret — the same design as a password hash or an SSH private key. When you cannot compare values, you verify by observing behaviour under a real signature.
+4. **Pick probes by their blast radius, not their convenience.** On a live payments account, the discipline is: subscribed so it exercises the path, unhandled so it cannot corrupt state, free so it costs nothing, reversible so it leaves no trace. `setup_intent.created` was chosen against those four constraints, not because it was nearest to hand.
+5. **Beware instruments that write to what they measure.** The local probe updated the same success counter later used as evidence. Record the baseline before triggering, or the tool contaminates its own reading.
+6. **The cost of the bug justifies the rigour.** For a capped camp, a silently broken webhook means taking money for a seat that gets resold an hour later — discovered by a parent at the door. That asymmetry is what makes "the test passed" insufficient and a live, Stripe-signed delivery worth the effort.
+
+---
+
 ## Incident #32 — A theme filter that loaded too late: Stripe webhooks failing with `empty_secret`
 
 **Symptom:** Stripe API keys were moved out of the database into a Kubernetes Secret, supplied by a filter on `option_woocommerce_stripe_settings` registered in the child theme. Verification via WP-CLI looked perfect:
