@@ -2153,6 +2153,26 @@ Mon-Fri absent  Rosmini absent   28 Sep PRESENT (inside the product name)
 
 The times had just been changed, and the question "is the new time in the email?" had a more uncomfortable answer than expected: no time had ever been in the email.
 
+**Resolution.** Two changes, chosen so the failure cannot recur the same way:
+
+1. **The time moved into the product name.** The name is the field WooCommerce renders everywhere — confirmation email, admin order list, cart, checkout — so one value now feeds every surface instead of the website and the email reading from different fields. `short_description` was repurposed to the venue, which also stopped the class card repeating its own heading.
+2. **A `woocommerce_email_after_order_table` hook** appends venue and contact address to customer booking emails, guarded on `$sent_to_admin` and rendered in both HTML and plain text.
+
+Verified by rendering a **full-day** order — deliberately the two-session case, so a bug that printed one session's time twice would show up:
+
+```
+                html    plain
+9:00am          PRESENT PRESENT      Rosmini College   PRESENT PRESENT
+12:00pm         PRESENT PRESENT      Dominion Street   PRESENT PRESENT
+12:30pm         PRESENT PRESENT      holidaycamp@...   PRESENT PRESENT
+3:30pm          PRESENT PRESENT
+admin email camp block: correctly suppressed
+```
+
+Renaming did not change any slug, status or stock — checked explicitly, since a silent slug change would have broken every existing `?add-to-cart=` link and the page's own booking buttons.
+
+What was *not* added: what to bring, drop-off point, parking. None of them exist anywhere in Git, and inventing logistics for other people's children is not a gap a deploy should fill.
+
 ### Interview talking points
 
 1. **Know which process's exit code you are reading.** `cmd | tail` reports `tail`'s status. Any pipeline silently discards the failure of everything but its last stage — `set -o pipefail`, or capture `${PIPESTATUS[0]}`, or do not pipe the command whose success you care about.

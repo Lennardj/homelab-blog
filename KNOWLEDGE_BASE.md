@@ -644,9 +644,9 @@ Test card `pm_card_visa` via `WC_Stripe_API`. All test orders deleted and stock 
 > ```
 > **On-hold and processing orders reduce stock.** Abandoned test orders quietly consume capacity, which on a capped camp reads as places sold that were never sold.
 
-#### ⚠️ What the booking confirmation email actually contains — no time, no venue
+#### What the booking confirmation email contains — fixed 2026-09-15
 
-Rendered from a real order on 2026-09-15 (`WC_Email_Customer_Processing_Order::get_content()`, not sent):
+**The problem.** Rendered from a real order (`WC_Email_Customer_Processing_Order::get_content()`, not sent):
 
 ```
 9:00am   absent      12:30pm  absent
@@ -655,13 +655,37 @@ Mon-Fri  absent      Rosmini  absent
 28 Sep   PRESENT   <- only because it is inside the product name
 ```
 
-A parent receives the product name, quantity, price and billing address. **The session time and the venue address appear nowhere in the email** — they exist only on the website.
+A parent received the product name, quantity, price and billing address, and nothing else. **The session time and venue appeared nowhere** — they existed only on the website. The earlier end-to-end test confirmed emails were *delivered*; it never checked what they *said*.
 
-The earlier end-to-end test confirmed emails were *delivered*; it never checked what they *said*. Delivery and content are separate claims, and only one of them was verified.
+**Why it matters:** the confirmation is the artefact a parent keeps and re-reads on the morning of the camp.
 
-Why it matters: the confirmation is the artefact a parent keeps and refers back to on the morning of the camp. Times also changed after bookings opened (see above), so anyone booking before that change would hold an email that was silently correct only because it never stated a time at all.
+**The rule this produced: anything that must reach a parent has to be in the product NAME or injected into the email.** WooCommerce order emails render the product name and item meta — never `short_description`, which is where the time used to live, and which is exactly why the website looked complete while the email was not.
 
-**Anything that must reach a parent has to be in the product name or injected into the email.** WooCommerce order emails render the product name and item meta — not the short description, which is where `Mon-Fri, 9:00am - 12:00pm` currently lives, and which is why the website looks complete while the email is not.
+**Fix, two parts:**
+
+1. **Time moved into the product name**, so it propagates to the confirmation email, admin order list, cart and checkout at once:
+   `AI Camp - Morning Session, Mon-Fri 9:00am-12:00pm, 28 Sep - 2 Oct`
+   `short_description` now carries the venue instead, so the class card does not merely repeat its own heading.
+2. **`woocommerce_email_after_order_table`** in the theme appends a *Camp details* block — venue from `lj_camp_venue()`, contact from `lj_camp_contact()`. Customer emails only (`$sent_to_admin` guard), and it renders in **both HTML and plain text**, since a block written only for HTML disappears silently for plain-text recipients.
+
+**Verified on a full-day order (both sessions, two different times):**
+
+```
+                html    plain
+9:00am          PRESENT PRESENT      Rosmini College   PRESENT PRESENT
+12:00pm         PRESENT PRESENT      Dominion Street   PRESENT PRESENT
+12:30pm         PRESENT PRESENT      holidaycamp@...   PRESENT PRESENT
+3:30pm          PRESENT PRESENT
+admin email camp block: correctly suppressed
+```
+
+> Renaming a product does **not** change its slug — verified, all four unchanged, so existing links and the `?add-to-cart=` URLs still resolve. Status and stock are also untouched by `set_name()`.
+
+> The card heading renders as `AI Camp – Morning Session…` with an en dash: WordPress `wptexturize()` converts `-` surrounded by spaces. Cosmetic, and it predates this change.
+
+> The `.lj-class__when` CSS class now holds the venue rather than the time. Class name is a slight misnomer; renaming it would mean touching the stylesheet for no functional gain.
+
+> ⚠️ Still not stated in the email: what to bring, drop-off point, parking. Those were never in Git, so they were not invented here — add them to `lj_camp_venue()`'s block when decided.
 
 #### `wp-bootstrap.sh` — one canonical copy
 
