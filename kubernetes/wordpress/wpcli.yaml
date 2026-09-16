@@ -204,19 +204,30 @@ spec:
             - name: mu-plugins
               mountPath: /var/www/html/wp-content/mu-plugins
               readOnly: true
-          # 512Mi, raised from 256Mi on 2026-09-16. A full wp-bootstrap.sh run
-          # loads WooCommerce and rewrites every page and post in one PHP
-          # process, and was OOM-killed (exit 137) near the end at 256Mi - see
-          # Incident #37. The request stays at 32Mi: this pod idles on
-          # `sleep infinity` almost all the time, so reserving more would
-          # take node capacity from workloads that actually use it.
+          # 256Mi. This was briefly raised to 512Mi on 2026-09-16 because a full
+          # wp-bootstrap.sh run was OOM-killed (exit 137) near the end at 256Mi.
+          # It was reverted the same day: at 256Mi the failure was a clean,
+          # contained memcg kill, whereas the run at 512Mi wedged worker-2 in an
+          # RCU stall that took the node NotReady and the live site down with it
+          # (the PVC is local-path, pinned to that node, so WordPress could not
+          # reschedule). See Incident #37.
+          #
+          # The stall is NOT caused by this limit - a Grafana process tripped the
+          # identical stall afterwards with no WP-CLI running - but until that
+          # node fault is understood, the smaller limit is the safer failure mode:
+          # it kills one process instead of stalling a kernel. Raise it only once
+          # worker-2 is proven stable.
+          #
+          # The request stays at 32Mi: this pod idles on `sleep infinity` almost
+          # all the time, so reserving more would take node capacity from
+          # workloads that actually use it.
           resources:
             requests:
               cpu: 10m
               memory: 32Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 256Mi
       volumes:
         - name: wordpress-data
           persistentVolumeClaim:
