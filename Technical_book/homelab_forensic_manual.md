@@ -2104,7 +2104,95 @@ Verified after: `siteurl`/`home` correct, only `guid` values still referencing t
 
 ---
 
-## Incident #36 — A deploy that was killed and still reported success, and an email that said less than the website
+## Incident #37 — Raising a memory limit turned a contained OOM kill into a site outage
+
+**The only real outage in this manual.** `lennardjohn.org` was down for roughly eleven hours with bookings open, and the change that caused it was a one-line memory limit intended to *prevent* a failure.
+
+### Symptom
+
+After raising `wpcli` from 256Mi to 512Mi, a full `wp-bootstrap.sh` run was started to prove the fix. Its **first** command hung:
+
+```
+== site identity ==      <- one line of output, then nothing for 4+ minutes
+```
+
+```
+PID 2673467  ELAPSED 861  %CPU 99.8  php /usr/local/bin/wp option update blogname
+usage_usec 293453863   user_usec 1270468   system_usec 292183394
+```
+
+861 seconds of CPU for an idempotent write of a value that was already correct — and **99.6% of it in kernel time**. PHP had done 1.3 seconds of actual work. Throttling was negligible (25 periods), so the 500m CPU limit was not the constraint.
+
+```
+[Tue Sep 15 12:15:06 2026] rcu: INFO: rcu_sched self-detected stall on CPU
+[Tue Sep 15 12:15:06 2026] CPU: 2 PID: 2673467 Comm: php Not tainted 5.15.0-1090-kvm
+```
+
+### How one process became a site outage
+
+The cascade is the part worth studying, because no step in it is unreasonable:
+
+```
+php spins in kernel   ->  node load 41+, kubelet cannot report
+kubelet stops         ->  worker-2 NotReady          (12:17:01)
+NotReady 6 min        ->  NoExecute taint applied    (12:23:12)
+taint                 ->  TaintManager evicts WordPress
+eviction              ->  replacement pod Pending, FOREVER
+```
+
+The last step is the fatal one. `wordpress-pvc` is `local-path` with `nodeAffinity` pinning it to `k8s-worker-2`:
+
+```
+0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane},
+1 node(s) had untolerated taint {node.kubernetes.io/not-ready},
+1 node(s) had volume node affinity conflict.
+```
+
+**Local storage converts a single-node fault into a total outage.** Kubernetes rescheduling is worthless when the volume can only exist in one place. Everything else — three nodes, GitOps, healthy MariaDB on worker-1 — was irrelevant.
+
+It then spread past the node. `kubectl` began returning `etcdserver: request timed out`, and the master showed **70% iowait with zero blocks read or written**: storage on the shared Proxmox host had stalled, and etcd cannot acknowledge a write it cannot fsync. One guest took the control plane with it.
+
+### Diagnostics, including the ones that were wrong
+
+**A pipeline hid the first kill.** The earlier 256Mi run ended `Killed` / `exit code 137`, but it was piped to `tail`, so the shell reported `tail`'s status — zero. The harness recorded *completed, exit 0* for a run the kernel had killed. Same lesson as Incident #36, encountered again within the hour.
+
+**`uptime` from the Proxmox API cannot detect a reboot.** VM 201 showed 39.8 days of uptime, matching worker-1, which was read as "the reset never happened". It is the **QEMU process** uptime, and `qm reset` restarts the guest without restarting that process — it went 3439807 → 3439904 across a reset issued and confirmed by UPID. The authoritative check is the guest's own `/proc/uptime`, which read 126 seconds after a real reboot.
+
+**The first root cause was wrong.** The outage was attributed to the 512Mi change. Then, on a freshly rebooted node with no WP-CLI running at all, the identical stall returned every three minutes:
+
+```
+[Wed Sep 16 00:00:56] rcu: INFO: rcu_sched self-detected stall on CPU
+[Wed Sep 16 00:03:56] rcu: INFO: rcu_sched self-detected stall on CPU
+CPU: 0 PID: 4273 Comm: grafana
+```
+
+`PID 3697  Zsl  95.7%  grafana <defunct>` — a **zombie** whose surviving thread was still spinning in the kernel, parented by `containerd-shim`. Two unrelated workloads, `php` and `grafana`, tripping the same stall on the same VM, while master and worker-1 on the identical kernel logged zero, points at the node or its host storage — not at the memory limit and not at WP-CLI.
+
+### Root cause
+
+A node-level fault on `k8s-worker-2` (kernel `5.15.0-1090-kvm`, QEMU guest) in which a process can enter an unkillable kernel spin, stalling RCU and eventually the kubelet. The 512Mi limit did not cause it. What the limit changed was the **failure mode**: at 256Mi the kernel's memcg killer reaped the process cleanly and contained the damage; at 512Mi the process survived long enough to wedge the node.
+
+### Fix
+
+1. `wpcli` reverted to **256Mi** — deliberately preferring a contained OOM kill over a kernel stall while the node fault is unexplained.
+2. Grafana scaled to 0. It was `0/1 ready` and serving nothing while destabilising the node that hosts live bookings.
+3. Worker-2 reset via the Proxmox API. A zombie stuck in the kernel clears no other way.
+
+> **Scaling an operator-owned workload does not hold.** `kubectl scale statefulset/prometheus-... --replicas=0` reported `scaled`, and Prometheus was running again minutes later. The StatefulSet is owned by a `Prometheus` custom resource (`monitoring.coreos.com/v1`), and the Prometheus Operator reconciles it back from `spec.replicas`. Grafana, a plain Deployment with no `ownerReferences`, stayed at 0. To stop an operator-managed workload, change the custom resource, not the object it generates.
+>
+> This is the third form of the same trap in this cluster: Argo CD self-heal reverts anything in Git (it undid a `wpcli` scale-down the same night), an operator reverts anything it generates, and Helm reverts on the next upgrade. **Before scaling something to zero, establish who owns it** — otherwise "scaled" is a statement about intent, not outcome.
+
+**Result:** guest uptime 106s, **0 stalls, 0 zombies, 0 OOM kills** since boot, load 0.40 against 57 before, 97% idle. Site 200 and stable; WordPress Running with live endpoints; the nightly restic backup had completed throughout (11 snapshots, 263 MiB), and MariaDB on worker-1 was never affected. There were zero orders, so no booking data was at risk.
+
+### Interview talking points
+
+1. **Raising a limit changes which failure you get, not whether you fail.** A limit is a blast-radius control. 256Mi meant "kill one process"; 512Mi meant "let it run long enough to stall the kernel". Before raising one, ask what the system does with the extra headroom when the workload is misbehaving rather than merely large.
+2. **Local persistent volumes delete your failover.** `local-path` plus `nodeAffinity` means one node's health is the application's availability. The scheduler reports `volume node affinity conflict` and stops. If a workload must survive a node, its storage must not be pinned to one.
+3. **Know which process's exit code you are reading.** `cmd | tail` reports `tail`. A pipeline silently discards every other stage's status, which is how a kernel kill got recorded as success.
+4. **Verify a reboot from inside the guest.** Hypervisor uptime measures the VM process, not the operating system. `qm reset` leaves it untouched. `/proc/uptime` is the truth.
+5. **One noisy guest can take the control plane.** etcd needs durable writes; starve the shared storage and the API server stops answering. Blast radius follows the physical host, not the cluster diagram.
+6. **Recurrence after the fix is the real test of a root cause.** "The memory bump caused it" survived until the same stall appeared with the bump reverted and a different process named. A cause that only explains the first occurrence is a correlation.
+7. **Say plainly when your diagnosis was wrong.** The first explanation was stated with too much confidence to someone who had to decide whether to reboot production on the strength of it. Correcting it early is cheaper than being trusted on it later.
 
 Two findings from one change: updating the camp session times after bookings had opened.
 

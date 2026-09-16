@@ -305,7 +305,10 @@ Note `selfHeal: true` will revert manual changes once Argo CD is healthy again �
 - `runAsUser`/`runAsGroup` **33** (`www-data`) — matching the PVC's file ownership. Running as root would create root-owned files the WordPress pod could not later modify, quietly breaking plugin and media uploads
 - `WORDPRESS_CONFIG_EXTRA` deliberately **not** set, so `wp option get siteurl` reports the real database value rather than the runtime constant
 - Usage: `kubectl exec -n wordpress deploy/wpcli -- wp <args>`, or `scripts/wp.sh <args>`
-- Park with `kubectl scale deploy/wpcli -n wordpress --replicas=0`
+- Park with `kubectl scale deploy/wpcli -n wordpress --replicas=0` — **note:** this does not hold. `wpcli` is in Git under `kubernetes/wordpress/`, so Argo CD self-heal scales it straight back to 1. To park it durably, change the manifest and push.
+- Memory limit **256Mi**. It was raised to 512Mi on 2026-09-16 and reverted the same day — see Incident #37. A full `wp-bootstrap.sh` run exceeds 256Mi and gets OOM-killed near the end; that is the *safer* failure. At 512Mi the same run wedged the node instead.
+
+> ⚠️ **A single WP-CLI command can take down the whole site.** `wordpress-pvc` is `local-path` and pinned to `k8s-worker-2` (`nodeAffinity: kubernetes.io/hostname In [k8s-worker-2]`). If that node goes `NotReady`, the taint manager evicts the WordPress pod and it **cannot reschedule anywhere** — there is no failover, and the site stays down until the node returns. Treat any heavy job on that node as a production risk, not a maintenance task.
 
 ### Design: child theme synced from Git by an initContainer
 
@@ -994,6 +997,22 @@ wp cache flush && wp rewrite flush
 - Grafana: 2Gi storage, admin password from `GRAFANA_ADMIN_PASSWORD` (.env)
 - AlertManager: 2Gi storage, email alerts via Gmail SMTP
 - Grafana ingress: `grafana.lennardjohn.org`
+
+> ⚠️ **Grafana is scaled to 0 as of 2026-09-16** (`kubectl scale deploy/kube-prometheus-stack-grafana -n monitoring --replicas=0`). A Grafana process left a zombie spinning in the kernel on `k8s-worker-2`, producing RCU stalls every three minutes and driving load past 57. It was already `0/1 ready` and serving nothing. Scale it back with `--replicas=1` once the node fault is understood — see Incident #37.
+
+#### Who reverts a scale-down — check before you scale
+
+Three different owners will undo `kubectl scale`, and each fails differently:
+
+| Workload | Owner | Does `kubectl scale` hold? |
+|---|---|---|
+| `wpcli`, `wordpress` | **Argo CD** (in Git, `selfHeal: true`) | **No** — scaled back within ~1 min. Change the manifest and push instead |
+| `prometheus-…-prometheus` StatefulSet | **Prometheus Operator** (owned by a `Prometheus` CR) | **No** — reconciled back from `spec.replicas`. Patch the CR, not the StatefulSet |
+| `kube-prometheus-stack-grafana` Deployment | nothing (no `ownerReferences`) | **Yes** — but a future `helm upgrade` from Ansible restores it |
+
+`kubectl scale` reporting `scaled` describes intent, not outcome. Argo tracks only `Namespace/monitoring` and `Ingress/grafana` from `kubernetes/monitoring/` — every other object here belongs to the Helm release, which is the same Git-vs-Helm blind spot as Incident #23.
+
+> ⚠️ **The monitoring stack cannot observe the node it lives on.** Prometheus and Grafana both have `local-path` PVCs pinned to **`k8s-worker-2`**, the same node as WordPress. During the Incident #37 outage the `NodeNotReady` alert (critical, 2 min) never fired, because Prometheus *evaluates* the rules and it went down with the node. AlertManager sits on worker-1, but with no evaluator there was nothing to deliver. **An alert about a node is worthless if it is computed on that node.**
 
 **AlertManager — Alert Rules**
 
